@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WahlApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#f3f1ea,#141416);--paper:light-dark(#fffefa,#1d1d21);--ink:light-dark(#18181b,#ecebe6);--mute:light-dark(#66645d,#a19f98);--line:light-dark(#d9d5c8,#34343a);--red:light-dark(#c8201e,#ff5a52);--redbg:light-dark(#fbe7e5,#3a1d1c);--ok:light-dark(#1d5fa8,#7fb2ff)}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Archivo,system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:780px;margin:0 auto;padding:clamp(18px,4vw,44px) max(4vw,14px) 60px}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+h1{font-size:clamp(30px,6vw,46px);line-height:1.05;margin:0;font-weight:800;text-wrap:balance}
+h2{font-size:21px;margin:0 0 12px}
+.who{color:var(--mute);font-size:14px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:99px;font-size:14px;font-weight:600;border:1.5px solid currentColor;white-space:nowrap}
+.chip i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.chip.plain{color:var(--ink);border-width:1px;font-weight:400}
+.s-running{color:var(--red)}.s-paused,.s-setup{color:var(--mute)}.s-ended,.s-published{color:var(--ok)}
+.tabs{display:flex;gap:6px;margin:6px 0 18px;flex-wrap:wrap}
+.tabs button{background:none;border:1.5px solid var(--line);color:var(--ink)}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tabs .out{margin-left:auto}
+.sheet{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:clamp(18px,3.5vw,32px);box-shadow:0 1px 0 var(--line),0 12px 30px -18px #0004;margin-bottom:18px;position:relative}
+.sheet.ballot{border-top:6px solid var(--red)}
+.hint{color:var(--mute);font-size:15px;margin:0 0 14px}
+button{font:inherit;font-weight:600;min-height:44px;padding:8px 18px;border-radius:6px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}
+button.red{background:var(--red);color:#fff}
+button.ghost{background:none;color:var(--ink);border:1.5px solid var(--line)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.cands{list-style:none;margin:0;padding:0}
+.cand{display:flex;align-items:center;gap:14px;padding:12px 4px;border-bottom:1px dashed var(--line);cursor:pointer;min-height:56px}
+.cand:last-child{border-bottom:0}.cand.off{cursor:default}
+.box{flex:none;width:34px;height:34px;border:2.5px solid var(--ink);border-radius:4px;display:grid;place-items:center;font-weight:800;font-size:18px;color:var(--red)}
+.cand.sel .box{border-color:var(--red)}
+.cname{font-weight:600;font-size:17px}.cinfo{color:var(--mute);font-size:14px}
+.mini{min-height:36px;padding:4px 10px;font-size:14px}
+label{display:block;font-weight:600;font-size:14px;margin:0 0 6px}
+input,select{font:inherit;font-size:16px;width:100%;min-height:44px;padding:8px 12px;border:1.5px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+input.code{text-transform:uppercase;letter-spacing:.18em;font-weight:700;font-size:22px;max-width:260px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:16px}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{flex:1;border-radius:0;background:none;color:var(--ink);padding:8px 6px}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+.edit{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;gap:8px;margin-bottom:8px}
+.stamp{position:absolute;right:22px;top:18px;transform:rotate(-8deg);border:3px solid var(--red);color:var(--red);font-weight:800;padding:6px 14px;border-radius:6px;font-size:20px;animation:st .35s ease-out}
+@keyframes st{from{transform:rotate(-8deg) scale(1.8);opacity:0}}
+@media(prefers-reduced-motion:reduce){.stamp{animation:none}}
+.res{display:grid;grid-template-columns:2.2em minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.res .rk{font-weight:800;font-size:20px;color:var(--mute)}.res.win .rk{color:var(--red)}
+.bar{grid-column:2/4;height:10px;background:var(--bg);border-radius:5px;overflow:hidden}
+.bar b{display:block;height:100%;background:var(--ink)}.res.win .bar b{background:var(--red)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.big{font-size:clamp(34px,8vw,52px);font-weight:800;line-height:1}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.note{background:var(--redbg);border-radius:6px;padding:10px 14px;font-size:15px;margin-bottom:14px}
+.switch{display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer;margin:0 0 10px}
+.switch input{width:22px;min-height:22px;height:22px;flex:none}
+.list .it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.list .it:last-child{border-bottom:0}
+.roomcode{display:flex;flex-wrap:wrap;gap:20px;align-items:center}
+.roomcode .c{font-size:clamp(40px,10vw,64px);font-weight:800;letter-spacing:.08em;line-height:1;font-variant-numeric:tabular-nums}
+#qr{background:#fff;padding:8px;border-radius:6px;width:156px;height:156px}
+#qr img,#qr canvas{width:140px!important;height:140px!important}
+.stats{display:flex;flex-wrap:wrap;gap:24px;margin-bottom:16px}
+dialog{border:0;border-radius:8px;padding:24px;max-width:min(440px,92vw);background:var(--paper);color:var(--ink);box-shadow:0 20px 60px #0006}
+dialog::backdrop{background:#0007}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:6px;font-size:15px;display:none;z-index:9;max-width:90vw}
+#proto{display:none}
+@media print{
+  body{background:#fff;color:#000;font-size:11pt}
+  .wrap,dialog,.toast{display:none!important}
+  #proto{display:block;color:#000}
+  #proto h1{font-size:20pt;margin:0 0 4pt}#proto h2{font-size:13pt;margin:16pt 0 6pt}
+  #proto table{width:100%;border-collapse:collapse;font-size:10.5pt}
+  #proto th,#proto td{border:1px solid #888;padding:4pt 6pt;text-align:left;vertical-align:top}
+  #proto td.n{text-align:right;font-variant-numeric:tabular-nums}
+  #proto .meta td:first-child{width:38%;font-weight:600}
+  #proto .sig{display:grid;grid-template-columns:1fr 1fr;gap:30pt;margin-top:40pt}
+  #proto .sig div{border-top:1px solid #000;padding-top:4pt;font-size:9.5pt}
+  #proto tr{break-inside:avoid}
+  @page{margin:16mm}
+}
+@media(max-width:600px){.grid{grid-template-columns:minmax(0,1fr)}.edit{grid-template-columns:minmax(0,1fr) auto}.edit input.info{grid-row:2}.stamp{font-size:16px;right:12px;top:10px}.tabs .out{margin-left:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><div class="who" id="who">Wird geladen …</div><h1 id="title">WahlApp</h1></div>
+    <span id="chip"></span>
+  </header>
+  <nav class="tabs" id="tabs" hidden></nav>
+  <main id="main"><div class="sheet"><p class="hint">Wird geladen …</p></div></main>
+</div>
+<dialog id="dlg"><h2 id="dT"></h2><p id="dB" class="hint"></p><div class="row" style="justify-content:flex-end"><button class="ghost" id="dNo">Abbrechen</button><button class="red" id="dYes">Bestätigen</button></div></dialog>
+<div class="toast" id="toast"></div>
+<div id="proto"></div>
+
+<script type="module">
+/* ======== FIREBASE-DATEN ======== */
+const firebaseConfig = {
+  apiKey: "AIzaSyA10hNmPw8T75pfGyFankDJi-G9pn276r8",
+  authDomain: "wahlapp.firebaseapp.com",
+  projectId: "wahlapp",
+  appId: "1:739177123054:web:29127a0d7ddc3cd46137ff"
+};
+const SUPER_UID = "mmIhMZAUeOVJ917jU2SmDKsM6dm2"; // Haupt-Admin (du): verwaltet Mitarbeitende
+/* ================================= */
+
+const B='https://www.gstatic.com/firebasejs/10.12.2/';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LABEL={setup:'In Vorbereitung',running:'Wahl läuft',paused:'Pausiert',ended:'Beendet',published:'Ergebnis veröffentlicht'};
+const ALPH='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const norm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const fmtCode=c=>c?c.slice(0,3)+'-'+c.slice(3):'';
+const fmt=t=>t?new Date(t).toLocaleString('de-DE',{dateStyle:'medium',timeStyle:'short'}):'–';
+const rnd=n=>{const a=new Uint32Array(n);crypto.getRandomValues(a);return[...a].map(x=>ALPH[x%ALPH.length]).join('')};
+const ls={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+let F,A,D,app,auth,fs,secAuth=null;
+let me=null,prof=null,authReady=false,isSup=false,isAdm=false;
+let page='vote',busy=false,draft=null;
+// Wähler-Sicht
+let vCode=null,vRoom=null,vMember=null,vVote=null,vRes=null,vUnsub=[],vLoaded=false,vJoined=false;
+let pick=[],editing=false;
+// Admin-Sicht
+let myRooms=[],aCode=null,aRoom=null,aMembers=[],aVotes=[],aRes=null,aUnsub=[],staff=[],archive=[],gUnsub=[];
+const pendingRoom=norm(new URLSearchParams(location.search).get('r'));
+
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3400)}
+function ask(title,body,yes='Bestätigen'){return new Promise(r=>{const d=$('dlg');$('dT').textContent=title;$('dB').textContent=body;$('dYes').textContent=yes;
+  const done=v=>{d.close();$('dYes').onclick=$('dNo').onclick=null;r(v)};$('dYes').onclick=()=>done(true);$('dNo').onclick=()=>done(false);d.showModal()})}
+const err=e=>e?.code==='permission-denied'?'Keine Berechtigung (oder Aktion gerade nicht erlaubt).':(e?.code||e?.message||'Unbekannter Fehler');
+const off=arr=>{arr.forEach(u=>{try{u()}catch(e){}});arr.length=0};
+const R=(code,...p)=>D.doc(fs,'rooms',code,...p);
+const cname=(room,id)=>room?.cands?.find(c=>c.id===id)?.name||'?';
+const baseUrl=()=>location.origin+location.pathname;
+async function copy(t){try{await navigator.clipboard.writeText(t);toast('Kopiert')}catch(e){toast('Kopieren nicht möglich')}}
+
+/* ---------- Rendering ---------- */
+function render(){
+  const room=page==='room'?aRoom:page==='vote'&&vCode?vRoom:null;
+  $('title').textContent=room?.title||(page==='rooms'?'Wahlen verwalten':page==='staff'?'Mitarbeitende':page==='archive'?'Archiv':'WahlApp');
+  $('chip').innerHTML=room?`<span class="chip s-${room.status}"><i></i>${LABEL[room.status]}</span>`:'';
+  $('who').textContent=prof?`${prof.name} · ${isSup?'Haupt-Admin':isAdm?'Wahlleitung':'Mitarbeiter/in'}`:'';
+  const tabs=$('tabs');
+  if(me&&prof){
+    const T=(p,t)=>`<button data-page="${p}" aria-selected="${page===p||(p==='rooms'&&page==='room')}">${t}</button>`;
+    tabs.innerHTML=(isAdm?T('vote','Wählen')+T('rooms','Wahlen verwalten')+(isSup?T('staff','Mitarbeitende'):'')+T('archive','Archiv'):'')+`<button class="ghost out" id="logout">Abmelden</button>`;
+    tabs.hidden=false;
+  }else tabs.hidden=true;
+  let h;
+  if(!authReady)h=`<div class="sheet"><p class="hint">Wird geladen …</p></div>`;
+  else if(!me)h=loginView();
+  else if(!prof)h=noAccessView();
+  else if(page==='rooms'&&isAdm)h=roomsView();
+  else if(page==='room'&&isAdm)h=adminRoomView();
+  else if(page==='staff'&&isSup)h=staffView();
+  else if(page==='archive'&&isAdm)h=archiveView();
+  else h=vCode?voterRoomView():voterHomeView();
+  $('main').innerHTML=h;
+  if(page==='room'&&aCode)drawQR();
+}
+
+function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Mitarbeiter-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">E-Mail</label><input id="lE" type="email" autocomplete="username" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
+function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Mitarbeiterverzeichnis eingetragen. Wende dich an die Verwaltung.</p><button class="ghost" id="logout">Abmelden</button></div>`}
+
+/* ---------- Wähler ---------- */
+function voterHomeView(){
+  const recent=(ls.get('wa_rooms')||[]).filter(Boolean);
+  return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir die Wahlleitung vor Ort nennt.</p>
+  <form id="jf" class="row"><input id="jC" class="code" maxlength="8" autocomplete="off" placeholder="ABC-123" aria-label="Raum-Code"><button type="submit" class="red" ${busy?'disabled':''}>Beitreten</button></form>
+  ${recent.length?`<p class="hint" style="margin:18px 0 6px">Zuletzt besucht</p><div class="row" style="gap:6px">${recent.map(c=>`<button class="ghost mini" data-join="${esc(c)}">${fmtCode(c)}</button>`).join('')}</div>`:''}</div>`;
+}
+function modeText(s){return s.mode==='ranked'?`Rangfolge: bis zu ${s.max} ${s.max==1?'Platz':'Plätze'} vergeben – Platz 1 zählt am meisten.`:`Du kannst bis zu ${s.max} ${s.max==1?'Person':'Personen'} wählen.`}
+
+function voterRoomView(){
+  const s=vRoom,back=`<div class="row" style="margin-top:4px"><button class="ghost mini" id="vLeave">← Anderer Raum</button><span class="hint" style="margin:0">Raum ${fmtCode(vCode)}</span></div>`;
+  if(!vLoaded)return`<div class="sheet"><p class="hint">Raum wird geöffnet …</p></div>`;
+  if(!s)return`<div class="sheet"><h2>Raum nicht gefunden</h2><p class="hint">Den Raum ${fmtCode(vCode)} gibt es nicht (mehr).</p>${back}</div>`;
+  if(!vMember)return`<div class="sheet"><h2>Nicht im Raum</h2><p class="hint">${vJoined?'Du bist nicht mehr in diesem Raum.':''} ${s.entryOpen&&!['ended','published'].includes(s.status)?'':'Der Einlass ist geschlossen.'}</p>${s.entryOpen&&!['ended','published'].includes(s.status)?`<button class="red" data-join="${vCode}">Beitreten</button>`:''}${back}</div>`;
+  if(!vMember.ok)return`<div class="sheet ballot"><h2>Warte auf Einlass</h2><p class="hint">Die Wahlleitung muss deinen Beitritt noch bestätigen. Diese Seite aktualisiert sich von selbst.</p>${back}</div>`;
+  if(s.status==='published'&&vRes)return resultsView(vRes)+back;
+  const done=!!vVote&&!editing,live=s.status==='running'&&!done,canChange=s.allowChange===true&&s.status==='running';
+  let head='';
+  if(s.status==='setup')head=`<p class="hint">Die Wahl hat noch nicht begonnen. Diese Personen stehen zur Wahl:</p>`;
+  if(s.status==='paused')head=`<div class="note">Die Wahl ist gerade pausiert.${done&&s.allowChange?' Ändern oder Zurückziehen ist wieder möglich, sobald sie fortgesetzt wird.':' Du kannst wählen, sobald sie fortgesetzt wird.'}</div>`;
+  if(s.status==='ended'||s.status==='published')head=`<div class="note">Die Wahl ist beendet. Das Ergebnis wird von der Wahlleitung veröffentlicht.</div>`;
+  if(live)head=`<p class="hint">${editing?'<b>Du änderst deine Stimme.</b> ':''}${modeText(s)} Tippe auf einen Namen, um ihn ${s.mode==='ranked'?'auf den nächsten Platz zu setzen':'anzukreuzen'}.</p>`;
+  if(done){
+    const list=vVote.choices.map((id,i)=>`<li>${s.mode==='ranked'?(i+1)+'. ':''}${esc(cname(s,id))}</li>`).join('');
+    const acts=canChange?`<div class="row" style="margin-top:14px"><button class="ghost" id="vEdit" ${busy?'disabled':''}>Stimme ändern</button><button class="ghost" id="vDel" ${busy?'disabled':''}>Stimme zurückziehen</button></div>`:'';
+    return`<div class="sheet ballot"><div class="stamp">Abgegeben</div><h2>Stimmzettel</h2><p class="hint">Deine Stimme ist gezählt. Danke! Das Ergebnis erscheint hier, sobald es veröffentlicht wird.</p>${head}<label>Deine Wahl</label><ul style="margin:0 0 0 1.2em;padding:0">${list}</ul>${s.allowChange?'':'<p class="hint" style="margin-top:12px">Die Stimme ist endgültig abgegeben.</p>'}${acts}</div>${back}`;
+  }
+  const body=s.cands?.length?`<ul class="cands">${s.cands.map(c=>{
+      const i=pick.indexOf(c.id),on=i>=0&&live,mark=on?(s.mode==='ranked'?i+1:'✕'):'';
+      return`<li class="cand ${on?'sel':''} ${live?'':'off'}" data-c="${esc(c.id)}" ${live?'role="button" tabindex="0"':''}><span class="box">${mark}</span><span><div class="cname">${esc(c.name)}</div>${c.info?`<div class="cinfo">${esc(c.info)}</div>`:''}</span></li>`}).join('')}</ul>`
+    :`<p class="hint">Es stehen noch keine Personen zur Wahl.</p>`;
+  const foot=live?`<div class="row" style="margin-top:18px;justify-content:space-between"><span class="hint" style="margin:0">${pick.length} von ${s.max} vergeben</span><div class="row">${editing?`<button class="ghost" id="vCancel">Abbrechen</button>`:pick.length?`<button class="ghost" id="clr">Zurücksetzen</button>`:''}<button class="red" id="cast" ${pick.length&&!busy?'':'disabled'}>${editing?'Änderung speichern':'Stimme abgeben'}</button></div></div>`:'';
+  return`<div class="sheet ballot"><h2>Stimmzettel</h2>${head}${body}${foot}</div>${back}`;
+}
+
+function resultsView(r){
+  const top=r.rows[0]?.points||0,unit=r.mode==='ranked'?'Punkte':'Stimmen';let rank=0,prev=null;
+  const rows=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}
+    return`<div class="res ${rank===1&&x.points>0?'win':''}"><span class="rk">${rank}.</span><span class="cname">${esc(x.name)}</span><span class="num">${x.points} ${unit}</span><span class="bar"><b style="width:${top?x.points/top*100:0}%"></b></span>${r.mode==='ranked'?`<span class="cinfo" style="grid-column:2/4">${x.first}× auf Platz 1 · auf ${x.votes} Stimmzetteln</span>`:''}</div>`}).join('');
+  return`<div class="sheet ballot"><h2>Ergebnis</h2><p class="hint">${r.ballots} gültige Stimmzettel · ${r.mode==='ranked'?`Rangfolge (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 weniger)`:`bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</p>${rows||'<p class="hint">Keine Personen.</p>'}</div>`;
+}
+
+/* ---------- Admin: Raumliste ---------- */
+function roomsView(){
+  const mine=myRooms.filter(r=>isSup||r.owner===me.uid);
+  return`<div class="sheet"><h2>Neue Wahl eröffnen</h2><p class="hint">Es wird ein Raum mit eigenem Raum-Code angelegt. Du richtest die Wahl ein und gibst den Code vor Ort an die Anwesenden weiter.</p><button class="red" id="newRoom" ${busy?'disabled':''}>+ Neuen Wahlraum eröffnen</button></div>
+  <div class="sheet"><h2>${isSup?'Alle Wahlräume':'Meine Wahlräume'}</h2>${mine.length?`<div class="list">${mine.map(r=>`<div class="it"><span><div class="cname">${esc(r.title)} <span class="chip s-${r.status}" style="font-size:12px;padding:1px 8px;margin-left:4px">${LABEL[r.status]}</span></div><div class="cinfo">Raum ${fmtCode(r._id)} · eröffnet ${fmt(r.created)}${isSup&&r.owner!==me.uid?` · ${esc(r.ownerName||'')}`:''}</div></span><button class="ghost mini" data-open="${esc(r._id)}">Öffnen</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Wahlräume.</p>'}</div>`;
+}
+
+/* ---------- Admin: ein Raum ---------- */
+const voterIds=()=>new Set(aVotes.map(v=>v._id));
+function participants(){const ids=voterIds();return aMembers.filter(m=>ids.has(m._id)).map(m=>m.name||'?').sort((a,b)=>a.localeCompare(b,'de'))}
+function tally(){
+  const s=aRoom,ids=new Set(s.cands.map(c=>c.id)),t={};
+  s.cands.forEach(c=>t[c.id]={id:c.id,name:c.name,votes:0,points:0,first:0});
+  let n=0;
+  aVotes.filter(v=>Array.isArray(v.choices)).forEach(v=>{
+    const ch=[...new Set(v.choices)].filter(x=>ids.has(x)).slice(0,s.max);if(!ch.length)return;n++;
+    ch.forEach((id,i)=>{t[id].votes++;t[id].points+=s.mode==='ranked'?s.max-i:1;if(i===0)t[id].first++});
+  });
+  const rows=Object.values(t).sort((a,b)=>b.points-a.points||b.first-a.first||a.name.localeCompare(b.name));
+  return{roomId:aCode,title:s.title,owner:s.owner,ownerName:s.ownerName||'',mode:s.mode,max:s.max,allowChange:s.allowChange===true,approval:s.approval===true,
+    present:aMembers.filter(m=>m.ok).length,times:{...(s.times||{}),published:Date.now()},ballots:n,rows,publishedAt:Date.now()};
+}
+function ballotList(){
+  const s=aRoom,ids=new Set(s.cands.map(c=>c.id));
+  const l=aVotes.filter(v=>Array.isArray(v.choices)).map(v=>[...new Set(v.choices)].filter(x=>ids.has(x)).slice(0,s.max).map(id=>cname(s,id)).join(s.mode==='ranked'?' > ':', ')).filter(Boolean);
+  for(let i=l.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[l[i],l[j]]=[l[j],l[i]]}
+  return l;
+}
+const protoData=()=>({...aRes,ballotList:ballotList(),participants:participants()});
+
+function adminRoomView(){
+  const s=aRoom;
+  if(!s)return`<div class="sheet"><p class="hint">Raum wird geladen …</p><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div>`;
+  const d=draft||(draft=JSON.parse(JSON.stringify({title:s.title,mode:s.mode,max:s.max,cands:s.cands,allowChange:s.allowChange===true,approval:s.approval===true})));
+  const setup=s.status==='setup',closed=['ended','published'].includes(s.status);
+  const ok=aMembers.filter(m=>m.ok),wait=aMembers.filter(m=>!m.ok),n=aVotes.length;
+  const Bt=(id,txt,cls='',dis=false)=>`<button id="${id}" class="${cls}" ${dis||busy?'disabled':''}>${txt}</button>`;
+  let ctrl='';
+  if(setup)ctrl=Bt('aStart','Wahl starten','red',!s.cands.length);
+  if(s.status==='running')ctrl=Bt('aPause','Wahl pausieren','ghost')+Bt('aEnd','Wahl beenden');
+  if(s.status==='paused')ctrl=Bt('aStart','Wahl fortsetzen','red')+Bt('aEnd','Wahl beenden');
+  if(s.status==='ended')ctrl=Bt('aPub','Ergebnis veröffentlichen','red');
+  if(s.status==='published')ctrl=Bt('aPrint','Protokoll drucken / PDF','red',!aRes)+Bt('aArch','Im Archiv speichern','',!aRes);
+  const link=`${baseUrl()}?r=${aCode}`;
+  const codeBox=`<div class="sheet ballot"><div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Raum-Code</div><div class="c">${fmtCode(aCode)}</div>
+    <div class="row" style="margin-top:12px"><button class="ghost mini" id="aLink">Link kopieren</button><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div></div><div id="qr" aria-label="QR-Code zum Beitreten"></div></div></div>`;
+  const control=`<div class="sheet"><h2>Wahlsteuerung</h2>
+    <div class="stats"><div><div class="big">${n}<span style="font-size:.45em;color:var(--mute)"> / ${ok.length}</span></div><div class="hint" style="margin:0">Stimmzettel / im Raum</div></div><div class="hint" style="margin:0;max-width:330px">${s.status==='published'?'Das Ergebnis ist für alle im Raum sichtbar.':'Das Ergebnis bleibt verborgen – auch hier –, bis du es nach dem Beenden veröffentlichst.'}</div></div>
+    <div class="ctrl">${ctrl}</div>
+    <p class="hint" style="margin:12px 0 0">Ändern/Zurückziehen: <b>${s.allowChange?'erlaubt':'nicht erlaubt'}</b> · Beitritt: <b>${s.approval?'mit Bestätigung':'direkt'}</b></p>
+    ${setup&&!s.cands.length?`<p class="hint" style="margin-top:10px">Füge unten Personen hinzu und speichere, dann kannst du starten.</p>`:''}
+  </div>`;
+  const entry=`<div class="sheet"><h2>Einlass</h2>
+    <label class="switch"><input type="checkbox" id="eOpen" ${s.entryOpen?'checked':''} ${closed||busy?'disabled':''}> Einlass offen – neue Personen können mit dem Code beitreten</label>
+    <p class="hint">Schließe den Einlass, sobald alle Anwesenden im Raum sind. So kann ein weitergegebener Code nicht mehr benutzt werden.</p>
+    ${wait.length?`<label>Warten auf Bestätigung (${wait.length})</label><div class="list" style="margin-bottom:12px">${wait.map(m=>`<div class="it"><span class="cname">${esc(m.name)}</span><span class="row" style="gap:6px"><button class="mini" data-ok="${esc(m._id)}">Einlassen</button><button class="ghost mini" data-kick="${esc(m._id)}">Ablehnen</button></span></div>`).join('')}</div>`:''}
+    <label>Im Raum (${ok.length})</label>${ok.length?`<div class="row" style="gap:6px">${ok.sort((a,b)=>a.name.localeCompare(b.name,'de')).map(m=>`<span class="chip plain">${voterIds().has(m._id)?'✓ ':''}${esc(m.name)}</span>`).join('')}</div><p class="hint" style="margin:8px 0 0;font-size:13px">✓ = hat abgestimmt (nicht, was).</p>`:'<p class="hint" style="margin:0">Noch niemand beigetreten.</p>'}
+  </div>`;
+  const res=s.status==='published'&&aRes?resultsView(aRes):'';
+  const dis=setup?'':'disabled';
+  const cfg=`<div class="sheet"><h2>Wahl einrichten</h2>${setup?'':`<div class="note">Einstellungen und Kandidat/innen sind gesperrt, sobald die Wahl gestartet wurde.</div>`}
+    <div style="margin-bottom:16px"><label for="fTitle">Titel</label><input id="fTitle" value="${esc(d.title)}" ${dis} maxlength="80"></div>
+    <div class="grid"><div><label>Wahlart</label><div class="seg"><button data-mode="free" aria-pressed="${d.mode==='free'}" ${dis}>Allgemein</button><button data-mode="ranked" aria-pressed="${d.mode==='ranked'}" ${dis}>Reihenfolge</button></div></div>
+    <div><label for="fMax">${d.mode==='ranked'?'Plätze pro Stimmzettel':'Stimmen pro Person (bis zu)'}</label><input id="fMax" type="number" min="1" value="${d.max}" ${dis}></div></div>
+    <p class="hint">${d.mode==='ranked'?'Wähler/innen sortieren ihre Favoriten. Platz 1 bringt so viele Punkte wie Plätze vergeben werden, jeder weitere einen weniger.':'Jede Person kreuzt bis zur festgelegten Zahl an; jedes Kreuz zählt eine Stimme.'}</p>
+    <label class="switch"><input type="checkbox" id="fChange" ${d.allowChange?'checked':''} ${dis}> Stimme ändern/zurückziehen erlauben (nur solange die Wahl läuft)</label>
+    <label class="switch" style="margin-bottom:16px"><input type="checkbox" id="fApprove" ${d.approval?'checked':''} ${dis}> Beitritt nur nach Bestätigung durch mich</label>
+    <label>Zur Wahl stehen</label>
+    ${d.cands.map((c,i)=>`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Name" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="Info (optional)" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join('')||'<p class="hint">Noch niemand eingetragen.</p>'}
+    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Person hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}
+  </div>`;
+  const danger=`<div class="sheet"><h2>Raum auflösen</h2><p class="hint">Löscht den Raum mit allen Stimmen, Teilnehmenden und dem Ergebnis endgültig. Gespeicherte Protokolle im Archiv bleiben erhalten.</p><button class="ghost" id="aDelRoom" ${busy?'disabled':''}>Raum endgültig löschen</button></div>`;
+  return codeBox+res+control+entry+cfg+danger;
+}
+
+let qrLib=null;
+function drawQR(){
+  const el=$('qr');if(!el)return;
+  const go=()=>{try{el.innerHTML='';new window.QRCode(el,{text:`${baseUrl()}?r=${aCode}`,width:140,height:140,correctLevel:window.QRCode.CorrectLevel.M})}catch(e){el.remove()}};
+  if(window.QRCode)return go();
+  if(!qrLib){qrLib=new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)})}
+  qrLib.then(()=>{if($('qr'))go()}).catch(()=>$('qr')?.remove());
+}
+
+/* ---------- Protokoll ---------- */
+function protoHTML(r){
+  const unit=r.mode==='ranked'?'Punkte':'Stimmen',T=r.times||{};let rank=0,prev=null;
+  const rows=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}return`<tr><td class="n">${rank}.</td><td>${esc(x.name)}</td><td class="n">${x.points}</td>${r.mode==='ranked'?`<td class="n">${x.first}</td><td class="n">${x.votes}</td>`:''}</tr>`}).join('');
+  const bl=(r.ballotList||[]).map((b,i)=>`<tr><td class="n">${i+1}</td><td>${esc(b)}</td></tr>`).join('');
+  const pl=(r.participants||[]).map((n,i)=>`<tr><td class="n">${i+1}</td><td>${esc(n)}</td></tr>`).join('');
+  return`<h1>Wahlprotokoll</h1><div>${esc(r.title||'Wahl')} · Raum ${fmtCode(r.roomId)}</div>
+  <h2>Angaben zur Wahl</h2><table class="meta">
+  <tr><td>Wahlleitung</td><td>${esc(r.ownerName||'–')}</td></tr>
+  <tr><td>Wahlart</td><td>${r.mode==='ranked'?`Rangfolge, bis zu ${r.max} Plätze (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 Punkt weniger)`:`Allgemein, bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</td></tr>
+  <tr><td>Stimmberechtigung</td><td>Angemeldete Mitarbeitende mit Raum-Code${r.approval?', Beitritt durch Wahlleitung bestätigt':''}</td></tr>
+  <tr><td>Ändern/Zurückziehen</td><td>${r.allowChange?'erlaubt während der Wahl':'nicht erlaubt'}</td></tr>
+  <tr><td>Wahl gestartet</td><td>${fmt(T.running)}</td></tr>
+  <tr><td>Wahl beendet</td><td>${fmt(T.ended)}</td></tr>
+  <tr><td>Ergebnis veröffentlicht</td><td>${fmt(T.published||r.publishedAt)}</td></tr>
+  <tr><td>Im Raum anwesend</td><td>${r.present??'–'}</td></tr>
+  <tr><td>Gültige Stimmzettel</td><td>${r.ballots}${r.present?` (Beteiligung ${Math.round(r.ballots/r.present*100)} %)`:''}</td></tr>
+  </table>
+  <h2>Ergebnis</h2><table><tr><th>Platz</th><th>Name</th><th>${unit}</th>${r.mode==='ranked'?'<th>× Platz 1</th><th>auf Stimmzetteln</th>':''}</tr>${rows}</table>
+  ${pl?`<h2>Teilnehmende (${r.participants.length}, alphabetisch)</h2><table><tr><th>Nr.</th><th>Name</th></tr>${pl}</table><p style="font-size:9pt;color:#555">Die Liste zeigt nur, wer abgestimmt hat – nicht, was gewählt wurde.</p>`:''}
+  ${bl?`<h2>Abgegebene Stimmzettel (anonym, zufällig sortiert)</h2><table><tr><th>Nr.</th><th>${r.mode==='ranked'?'Rangfolge':'Gewählt'}</th></tr>${bl}</table>`:''}
+  <div class="sig"><div>Ort, Datum</div><div>Unterschrift Wahlleitung</div></div>
+  <p style="font-size:9pt;color:#555;margin-top:18pt">Erstellt am ${fmt(Date.now())}</p>`;
+}
+function printProto(r){$('proto').innerHTML=protoHTML(r);setTimeout(()=>{try{window.print()}catch(e){toast('Drucken nicht möglich')}},50)}
+
+/* ---------- Mitarbeitende & Archiv ---------- */
+function staffView(){
+  return`<div class="sheet"><h2>Mitarbeiter/in anlegen</h2><p class="hint">Simuliert das Konzern-Verzeichnis: Nur hier eingetragene Konten können sich anmelden und wählen.</p>
+  <form id="sf"><div class="grid"><div><label for="sN">Name</label><input id="sN" required maxlength="60"></div><div><label for="sE">E-Mail</label><input id="sE" type="email" required></div>
+  <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div><div><label for="sR">Rolle</label><select id="sR"><option value="voter">Mitarbeiter/in (wählen)</option><option value="admin">Wahlleitung (Wahlen eröffnen)</option></select></div></div>
+  <button type="submit" ${busy?'disabled':''}>Anlegen</button></form></div>
+  <div class="sheet"><h2>Verzeichnis (${staff.length})</h2>${staff.length?`<div class="list">${staff.sort((a,b)=>a.name.localeCompare(b.name,'de')).map(u=>`<div class="it"><span><div class="cname">${esc(u.name)}</div><div class="cinfo">${esc(u.email||'')} · ${u._id===SUPER_UID?'Haupt-Admin':u.role==='admin'?'Wahlleitung':'Mitarbeiter/in'}</div></span>
+  ${u._id===SUPER_UID?'':`<span class="row" style="gap:6px"><button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Mitarbeiter/in':'→ Wahlleitung'}</button><button class="ghost mini" data-pw="${esc(u.email||'')}">Passwort-Mail</button><button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button></span>`}</div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+}
+function archiveView(){
+  const list=archive.filter(a=>isSup||a.owner===me.uid);
+  return`<div class="sheet"><h2>Wahlprotokolle</h2><p class="hint">Gespeicherte Protokolle bleiben erhalten, auch wenn der Raum gelöscht wird.</p>
+  ${list.length?`<div class="list">${list.map(a=>`<div class="it"><span><div class="cname">${esc(a.title||'Wahl')}</div><div class="cinfo">Raum ${fmtCode(a.roomId)} · ${fmt(a.times?.published||a.publishedAt)} · ${a.ballots} Stimmzettel${isSup&&a.owner!==me.uid?' · '+esc(a.ownerName||''):''}</div></span><span class="row" style="gap:6px"><button class="ghost mini" data-ap="${esc(a._id)}">Drucken / PDF</button><button class="ghost mini" data-ad="${esc(a._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Protokolle gespeichert.</p>'}</div>`;
+}
+
+/* ---------- Daten-Abos ---------- */
+function startGlobal(){
+  off(gUnsub);
+  if(isAdm){
+    gUnsub.push(D.onSnapshot(D.collection(fs,'rooms'),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
+  }
+  if(isSup)gUnsub.push(D.onSnapshot(D.collection(fs,'users'),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+}
+function openAdminRoom(code){
+  off(aUnsub);aCode=code;aRoom=null;aMembers=[];aVotes=[];aRes=null;draft=null;page='room';render();
+  aUnsub.push(D.onSnapshot(R(code),s=>{aRoom=s.exists()?s.data():null;if(!aRoom){toast('Raum existiert nicht mehr');closeAdminRoom();return}render()},e=>toast(err(e))));
+  aUnsub.push(D.onSnapshot(D.collection(fs,'rooms',code,'members'),q=>{aMembers=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+  aUnsub.push(D.onSnapshot(D.collection(fs,'rooms',code,'votes'),q=>{aVotes=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+  aUnsub.push(D.onSnapshot(R(code,'results','final'),s=>{aRes=s.exists()?s.data():null;render()},()=>{}));
+}
+function closeAdminRoom(){off(aUnsub);aCode=null;aRoom=null;draft=null;page='rooms';render()}
+
+async function joinRoom(code){
+  code=norm(code);if(code.length<4){toast('Bitte den Raum-Code eingeben');return}
+  busy=true;render();
+  try{
+    const r=await D.getDoc(R(code));
+    if(!r.exists()){toast('Raum nicht gefunden – Code prüfen');busy=false;render();return}
+    const m=await D.getDoc(R(code,'members',me.uid));
+    if(!m.exists()){
+      const s=r.data();
+      if(!s.entryOpen||['ended','published'].includes(s.status)){toast('Der Einlass in diesen Raum ist geschlossen');busy=false;render();return}
+      await D.setDoc(R(code,'members',me.uid),{name:prof.name,at:Date.now(),ok:s.approval!==true});
+    }
+    const rec=[code,...(ls.get('wa_rooms')||[]).filter(c=>c!==code)].slice(0,5);ls.set('wa_rooms',rec);
+    openVoterRoom(code);
+  }catch(e){toast(err(e))}
+  busy=false;render();
+}
+function openVoterRoom(code){
+  off(vUnsub);vCode=code;vRoom=null;vMember=null;vVote=null;vRes=null;vLoaded=false;vJoined=false;pick=[];editing=false;page='vote';render();
+  let resSub=null;
+  const ensureRes=()=>{if(vRoom?.status==='published'&&vMember?.ok&&!resSub){resSub=D.onSnapshot(R(code,'results','final'),x=>{vRes=x.exists()?x.data():null;render()},()=>{resSub=null});vUnsub.push(()=>resSub&&resSub())}};
+  vUnsub.push(D.onSnapshot(R(code),s=>{vRoom=s.exists()?s.data():null;vLoaded=true;
+    if(!vRoom||vRoom.status!=='running'){pick=[];editing=false}
+    ensureRes();render()},()=>{vLoaded=true;vRoom=null;render()}));
+  vUnsub.push(D.onSnapshot(R(code,'members',me.uid),s=>{vMember=s.exists()?s.data():null;if(vMember)vJoined=true;ensureRes();render()},()=>{}));
+  vUnsub.push(D.onSnapshot(R(code,'votes',me.uid),s=>{vVote=s.exists()?s.data():null;render()},()=>{}));
+}
+function leaveVoterRoom(){off(vUnsub);vCode=null;vRoom=null;render()}
+
+/* ---------- Aktionen ---------- */
+function withTimes(cur,patch){
+  if(!patch.status||patch.status===cur.status)return patch;
+  const t={...(cur.times||{})};
+  if(patch.status==='running'){if(!t.running)t.running=Date.now();else t.resumed=Date.now()}else t[patch.status]=Date.now();
+  return{...patch,times:t};
+}
+async function saveRoom(patch){
+  if(busy)return;busy=true;render();
+  try{await D.updateDoc(R(aCode),{...withTimes(aRoom,patch),updated:Date.now()})}catch(e){toast('Speichern fehlgeschlagen: '+err(e))}
+  busy=false;render();
+}
+async function createRoom(){
+  busy=true;render();
+  try{
+    let code,tries=0;do{code=rnd(6);tries++}while((await D.getDoc(R(code))).exists()&&tries<5);
+    await D.setDoc(R(code),{title:'Neue Wahl',status:'setup',mode:'free',max:1,cands:[],allowChange:false,approval:false,entryOpen:true,owner:me.uid,ownerName:prof.name,created:Date.now(),times:{}});
+    busy=false;openAdminRoom(code);toast('Wahlraum eröffnet');
+  }catch(e){busy=false;toast(err(e));render()}
+}
+async function deleteRoom(){
+  if(!await ask('Raum endgültig löschen?','Alle Stimmen, Teilnehmenden und das Ergebnis werden gelöscht. Archivierte Protokolle bleiben erhalten.','Löschen'))return;
+  busy=true;render();const code=aCode;
+  try{
+    const refs=[...aVotes.map(v=>R(code,'votes',v._id)),...aMembers.map(m=>R(code,'members',m._id)),R(code,'results','final')];
+    for(let i=0;i<refs.length;i+=100){const b=D.writeBatch(fs);refs.slice(i,i+100).forEach(r=>b.delete(r));await b.commit()}
+    await D.deleteDoc(R(code));busy=false;closeAdminRoom();toast('Raum gelöscht');
+  }catch(e){busy=false;toast(err(e));render()}
+}
+async function castVote(){
+  const s=vRoom;
+  const list=pick.map((id,i)=>(s.mode==='ranked'?(i+1)+'. ':'')+cname(s,id)).join(', ');
+  const fin=s.allowChange?'Solange die Wahl läuft, kannst du sie noch ändern oder zurückziehen.':'Danach kannst du sie nicht mehr ändern.';
+  if(!await ask(editing?'Änderung speichern?':'Stimme abgeben?',`Deine Wahl: ${list}. ${fin}`,editing?'Speichern':'Abgeben'))return;
+  busy=true;render();
+  try{await D.setDoc(R(vCode,'votes',me.uid),{choices:[...pick],at:Date.now()});toast(editing?'Stimme geändert':'Stimme abgegeben');editing=false;pick=[]}
+  catch(e){toast(e.code==='permission-denied'?'Abgabe nicht möglich – schon gewählt, oder die Wahl läuft gerade nicht.':err(e))}
+  busy=false;render();
+}
+async function withdraw(){
+  if(!await ask('Stimme zurückziehen?','Deine Stimme wird gelöscht und nicht gezählt. Du kannst danach neu wählen, solange die Wahl läuft.','Zurückziehen'))return;
+  busy=true;render();
+  try{await D.deleteDoc(R(vCode,'votes',me.uid));pick=[];toast('Stimme zurückgezogen')}catch(e){toast(err(e))}
+  busy=false;render();
+}
+async function createStaff(f){
+  const name=f.elements.sN.value.trim(),email=f.elements.sE.value.trim().toLowerCase(),pw=f.elements.sP.value,role=f.elements.sR.value;
+  if(!name||!email||pw.length<6){toast('Bitte alles ausfüllen (Passwort mind. 6 Zeichen)');return}
+  busy=true;render();
+  try{
+    if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
+    const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);
+    await D.setDoc(D.doc(fs,'users',c.user.uid),{name,email,role,created:Date.now()});
+    await A.signOut(secAuth);toast(`${name} angelegt`);f.reset();
+  }catch(e){toast(e.code==='auth/email-already-in-use'?'Diese E-Mail ist schon vergeben':e.code==='auth/invalid-email'?'Ungültige E-Mail':err(e))}
+  busy=false;render();
+}
+
+/* ---------- Ereignisse ---------- */
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('button,[data-c]');if(!t)return;
+  const ds=t.dataset;
+  if(ds.page){page=ds.page;if(page!=='room')off(aUnsub),aCode=null;render();return}
+  if(ds.c){if(t.classList.contains('off'))return;const s=vRoom,id=ds.c,i=pick.indexOf(id);
+    if(i>=0)pick.splice(i,1);else if(pick.length<s.max)pick.push(id);else if(s.max===1)pick=[id];else toast(`Höchstens ${s.max} möglich`);render();return}
+  if(ds.join){joinRoom(ds.join);return}
+  if(ds.open){openAdminRoom(ds.open);return}
+  if(ds.mode){draft.mode=ds.mode;render();return}
+  if(ds.del){draft.cands.splice(+ds.del,1);render();return}
+  if(ds.ok){try{await D.updateDoc(R(aCode,'members',ds.ok),{ok:true})}catch(x){toast(err(x))}return}
+  if(ds.kick){if(await ask('Beitritt ablehnen?','Die Person wird aus dem Raum entfernt.','Ablehnen'))try{await D.deleteDoc(R(aCode,'members',ds.kick))}catch(x){toast(err(x))}return}
+  if(ds.ap){const a=archive.find(x=>x._id===ds.ap);if(a)printProto(a);return}
+  if(ds.ad){if(await ask('Protokoll löschen?','Das Protokoll wird endgültig aus dem Archiv entfernt.','Löschen'))try{await D.deleteDoc(D.doc(fs,'archive',ds.ad));toast('Gelöscht')}catch(x){toast(err(x))}return}
+  if(ds.role){const u=staff.find(x=>x._id===ds.role);if(u)try{await D.updateDoc(D.doc(fs,'users',u._id),{role:u.role==='admin'?'voter':'admin'})}catch(x){toast(err(x))}return}
+  if(ds.pw!==undefined){if(!ds.pw)return toast('Keine E-Mail hinterlegt');try{await A.sendPasswordResetEmail(auth,ds.pw);toast('Mail zum Zurücksetzen verschickt')}catch(x){toast(err(x))}return}
+  if(ds.rm){const u=staff.find(x=>x._id===ds.rm);if(u&&await ask(`${u.name} entfernen?`,'Die Person kann sich danach nicht mehr an Wahlen beteiligen. (Das Login-Konto selbst löschst du bei Bedarf in Firebase → Authentication.)','Entfernen'))try{await D.deleteDoc(D.doc(fs,'users',u._id))}catch(x){toast(err(x))}return}
+  const s=aRoom;
+  switch(t.id){
+    case 'logout':off(vUnsub);off(aUnsub);off(gUnsub);vCode=null;aCode=null;page='vote';await A.signOut(auth);break;
+    case 'lForgot':{const m=$('lE')?.value.trim();if(!m){toast('Bitte zuerst deine E-Mail eintragen');break}try{await A.sendPasswordResetEmail(auth,m);toast('Falls das Konto existiert, kommt gleich eine Mail')}catch(x){toast(err(x))}break}
+    case 'vLeave':leaveVoterRoom();break;
+    case 'clr':pick=[];render();break;
+    case 'cast':castVote();break;
+    case 'vEdit':if(vRoom?.allowChange&&vRoom.status==='running'){editing=true;pick=[...vVote.choices];render()}break;
+    case 'vCancel':editing=false;pick=[];render();break;
+    case 'vDel':withdraw();break;
+    case 'newRoom':createRoom();break;
+    case 'aBack':closeAdminRoom();break;
+    case 'aLink':copy(`${baseUrl()}?r=${aCode}`);break;
+    case 'aAdd':draft.cands.push({id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:'',info:''});render();setTimeout(()=>{const l=document.querySelectorAll('[data-n]');l[l.length-1]?.focus()});break;
+    case 'aSave':{const c=draft.cands.map(x=>({id:x.id,name:x.name.trim(),info:(x.info||'').trim()})).filter(x=>x.name);
+      if(!c.length){toast('Mindestens eine Person eintragen');return}
+      const patch={title:(draft.title||'').trim()||'Wahl',mode:draft.mode==='ranked'?'ranked':'free',max:Math.min(Math.max(1,parseInt(draft.max)||1),c.length),cands:c,allowChange:!!draft.allowChange,approval:!!draft.approval};
+      draft=null;await saveRoom(patch);toast('Gespeichert');break}
+    case 'aStart':if(await ask(s.status==='paused'?'Wahl fortsetzen?':'Wahl starten?','Ab jetzt können alle im Raum abstimmen.','Starten'))saveRoom({status:'running'});break;
+    case 'aPause':saveRoom({status:'paused'});break;
+    case 'aEnd':if(await ask('Wahl beenden?','Danach kann niemand mehr abstimmen.','Beenden'))saveRoom({status:'ended',entryOpen:false});break;
+    case 'aPub':if(await ask('Ergebnis veröffentlichen?','Das Ergebnis wird für dich und alle im Raum sichtbar.','Veröffentlichen')){
+      try{busy=true;render();await D.setDoc(R(aCode,'results','final'),tally());busy=false;await saveRoom({status:'published'})}catch(x){busy=false;toast(err(x));render()}}break;
+    case 'aPrint':if(aRes)printProto(protoData());break;
+    case 'aArch':if(aRes){busy=true;render();try{await D.setDoc(D.doc(fs,'archive',`${aCode}_${aRes.publishedAt}`),{...protoData(),archivedAt:Date.now()});toast('Im Archiv gespeichert')}catch(x){toast(err(x))}busy=false;render()}break;
+    case 'aDelRoom':deleteRoom();break;
+  }
+});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.dataset?.c){e.preventDefault();e.target.click()}});
+document.addEventListener('input',e=>{const t=e.target;if(!draft)return;
+  if(t.dataset.n!==undefined)draft.cands[+t.dataset.n].name=t.value;
+  else if(t.dataset.i!==undefined)draft.cands[+t.dataset.i].info=t.value;
+  else if(t.id==='fMax')draft.max=t.value;else if(t.id==='fTitle')draft.title=t.value});
+document.addEventListener('change',async e=>{const t=e.target;
+  if(t.id==='eOpen'){saveRoom({entryOpen:t.checked});return}
+  if(!draft)return;if(t.id==='fChange')draft.allowChange=t.checked;if(t.id==='fApprove')draft.approval=t.checked});
+document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;
+  if(f.id==='lf'){const em=f.elements.lE.value.trim(),pw=f.elements.lP.value;busy=true;render();try{await A.signInWithEmailAndPassword(auth,em,pw)}catch(x){toast('Anmeldung fehlgeschlagen – E-Mail oder Passwort falsch')}busy=false;render()}
+  if(f.id==='jf')joinRoom(f.elements.jC.value);
+  if(f.id==='sf')createStaff(f);
+});
+
+/* ---------- Start ---------- */
+(async()=>{
+  try{[F,A,D]=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')])}
+  catch(e){$('main').innerHTML=`<div class="sheet"><p class="hint">Konnte nicht laden. Bitte Internetverbindung prüfen und neu öffnen.</p></div>`;return}
+  app=F.initializeApp(firebaseConfig);auth=A.getAuth(app);fs=D.getFirestore(app);
+  A.onAuthStateChanged(auth,async u=>{
+    me=u&&!u.isAnonymous?u:null;prof=null;isSup=false;isAdm=false;off(gUnsub);
+    if(u?.isAnonymous){await A.signOut(auth);return}
+    if(me){
+      isSup=me.uid===SUPER_UID;
+      try{
+        let p=await D.getDoc(D.doc(fs,'users',me.uid));
+        if(!p.exists()&&isSup){await D.setDoc(D.doc(fs,'users',me.uid),{name:'Haupt-Admin',email:me.email||'',role:'admin',created:Date.now()});p=await D.getDoc(D.doc(fs,'users',me.uid))}
+        prof=p.exists()?p.data():null;
+      }catch(e){prof=null}
+      isAdm=isSup||prof?.role==='admin';
+      if(prof){startGlobal();if(pendingRoom&&!vCode){history.replaceState(null,'',baseUrl());joinRoom(pendingRoom)}}
+    }
+    authReady=true;render();
+  });
+})();
+</script>
+</body>
+</html>
