@@ -7,10 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-:root{color-scheme:light dark;--bg:light-dark(#f3f1ea,#141416);--paper:light-dark(#fffefa,#1d1d21);--ink:light-dark(#18181b,#ecebe6);--mute:light-dark(#66645d,#a19f98);--line:light-dark(#d9d5c8,#34343a);--red:light-dark(#c8201e,#ff5a52);--redbg:light-dark(#fbe7e5,#3a1d1c);--ok:light-dark(#1d5fa8,#7fb2ff)}
+:root{color-scheme:light dark;--pri:#18181b;--acc:#c8201e;--bgl:#f3f1ea;--onpri:#fff;--bg:light-dark(var(--bgl),#141416);--paper:light-dark(#fffefa,#1d1d21);--ink:light-dark(#18181b,#ecebe6);--mute:light-dark(#66645d,#a19f98);--line:light-dark(#d9d5c8,#34343a);--red:light-dark(var(--acc),color-mix(in srgb,var(--acc) 45%,#fff));--redbg:light-dark(color-mix(in srgb,var(--acc) 11%,#fff),color-mix(in srgb,var(--acc) 30%,#141416));--ok:light-dark(#1d5fa8,#7fb2ff)}
 *{box-sizing:border-box;min-width:0}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Archivo,system-ui,sans-serif;overflow-x:clip}
 .wrap{max-width:780px;margin:0 auto;padding:clamp(18px,4vw,44px) max(4vw,14px) 60px}
+.band{background:var(--pri);color:var(--onpri)}
+.band .wrap{padding-bottom:22px}.band .who{color:inherit;opacity:.82}.band .chip{color:var(--onpri)}
+.wrap.body{padding-top:20px}
+.sw{display:inline-flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--line);flex:none}.sw i{width:22px;height:30px}
+input[type=color]{width:56px;min-height:44px;padding:3px}
 header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
 h1{font-size:clamp(30px,6vw,46px);line-height:1.05;margin:0;font-weight:800;text-wrap:balance}
 h2{font-size:21px;margin:0 0 12px}
@@ -21,13 +26,13 @@ h2{font-size:21px;margin:0 0 12px}
 .s-running{color:var(--red)}.s-paused,.s-setup{color:var(--mute)}.s-ended,.s-published{color:var(--ok)}
 .tabs{display:flex;gap:6px;margin:6px 0 18px;flex-wrap:wrap}
 .tabs button{background:none;border:1.5px solid var(--line);color:var(--ink)}
-.tabs button[aria-selected=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.tabs button[aria-selected=true]{background:var(--pri);color:var(--onpri);border-color:var(--pri)}
 .tabs .out{margin-left:auto}
 .sheet{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:clamp(18px,3.5vw,32px);box-shadow:0 1px 0 var(--line),0 12px 30px -18px #0004;margin-bottom:18px;position:relative}
-.sheet.ballot{border-top:6px solid var(--red)}
+.sheet.ballot{border-top:6px solid var(--pri)}
 .hint{color:var(--mute);font-size:15px;margin:0 0 14px}
 button{font:inherit;font-weight:600;min-height:44px;padding:8px 18px;border-radius:6px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}
-button.red{background:var(--red);color:#fff}
+button.red{background:var(--pri);color:var(--onpri);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--pri) 70%,#fff)}
 button.ghost{background:none;color:var(--ink);border:1.5px solid var(--line)}
 button:disabled{opacity:.4;cursor:not-allowed}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
@@ -89,11 +94,13 @@ dialog::backdrop{background:#0007}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
+<div class="band"><div class="wrap">
+  <header style="margin:0">
     <div><div class="who" id="who">Wird geladen …</div><h1 id="title">WahlApp</h1></div>
     <span id="chip"></span>
   </header>
+</div></div>
+<div class="wrap body">
   <nav class="tabs" id="tabs" hidden></nav>
   <main id="main"><div class="sheet"><p class="hint">Wird geladen …</p></div></main>
 </div>
@@ -109,7 +116,7 @@ const firebaseConfig = {
   projectId: "wahlapp",
   appId: "1:739177123054:web:29127a0d7ddc3cd46137ff"
 };
-const SUPER_UID = "mmIhMZAUeOVJ917jU2SmDKsM6dm2"; // Haupt-Admin (du): verwaltet Mitarbeitende
+const SUPER_UID = "mmIhMZAUeOVJ917jU2SmDKsM6dm2"; // Hauptwahlleiter (du): verwaltet alle Wähler, Wahlleiter und Designs
 /* ================================= */
 
 const B='https://www.gstatic.com/firebasejs/10.12.2/';
@@ -124,6 +131,31 @@ const rnd=n=>{const a=new Uint32Array(n);crypto.getRandomValues(a);return[...a].
 const ls={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 
 let F,A,D,app,auth,fs,secAuth=null;
+/* ---------- Designs ---------- */
+const PRESETS=[
+  {key:'standard',name:'Standard',app:'WahlApp',pri:'#18181b',acc:'#c8201e',bg:'#f3f1ea'},
+  {key:'thw',name:'THW (Blau/Weiß)',app:'THW-Wahl',pri:'#003399',acc:'#003399',bg:'#eef1f8'},
+  {key:'verein',name:'Verein (Grün/Braun)',app:'Vereinswahl',pri:'#2e4d2e',acc:'#8a5a2b',bg:'#f1f0e4'}];
+const HEX=/^#[0-9a-f]{6}$/i,okHex=(v,f)=>HEX.test(v||'')?v:f;
+const lum=hex=>{const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.03928?v/12.92:((v+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2]};
+let appName='WahlApp',themes=[],themeId=null,themeUnsub=null,tDraft=null,curTheme=null;
+function applyTheme(t){
+  const d=PRESETS[0];t=t||d;const st=document.documentElement.style;
+  const pri=okHex(t.pri,d.pri);
+  st.setProperty('--pri',pri);st.setProperty('--acc',okHex(t.acc,d.acc));st.setProperty('--bgl',okHex(t.bg,d.bg));
+  st.setProperty('--onpri',lum(pri)>.45?'#111':'#fff');
+  appName=String(t.app||'').trim()||d.app;document.title=appName;
+  try{localStorage.setItem('wa_theme',JSON.stringify({pri:t.pri,acc:t.acc,bg:t.bg,app:t.app}))}catch(e){}
+}
+try{applyTheme(JSON.parse(localStorage.getItem('wa_theme')))}catch(e){applyTheme(null)}
+function watchTheme(id){
+  if(id===themeId)return;themeId=id;if(themeUnsub){themeUnsub();themeUnsub=null}
+  if(!id){curTheme=null;if(!tDraft)applyTheme(null);render();return}
+  themeUnsub=D.onSnapshot(D.doc(fs,'themes',id),s=>{curTheme=s.exists()?s.data():null;if(!tDraft)applyTheme(curTheme);render()},()=>{curTheme=null;if(!tDraft)applyTheme(null);render()});
+}
+const themeName=id=>!id?'Standard':themes.find(t=>t._id===id)?.name||'(eigenes Design)';
+const themeOpts=(sel)=>`<option value="">Standard</option>${themes.filter(t=>isSup||t.owner===me.uid).map(t=>`<option value="${esc(t._id)}" ${t._id===sel?'selected':''}>${esc(t.name)}</option>`).join('')}`;
+const swatch=t=>`<span class="sw" aria-hidden="true"><i style="background:${okHex(t.pri,'#18181b')}"></i><i style="background:${okHex(t.acc,'#c8201e')}"></i><i style="background:${okHex(t.bg,'#f3f1ea')}"></i></span>`;
 let me=null,prof=null,authReady=false,isSup=false,isAdm=false;
 let page='vote',busy=false,draft=null;
 // Wähler-Sicht
@@ -146,13 +178,13 @@ async function copy(t){try{await navigator.clipboard.writeText(t);toast('Kopiert
 /* ---------- Rendering ---------- */
 function render(){
   const room=page==='room'?aRoom:page==='vote'&&vCode?vRoom:null;
-  $('title').textContent=room?.title||(page==='rooms'?'Wahlen verwalten':page==='staff'?'Mitarbeitende':page==='archive'?'Archiv':'WahlApp');
+  $('title').textContent=room?.title||(page==='rooms'?'Wahlen verwalten':page==='staff'?'Wähler':page==='themes'?'Designs':page==='archive'?'Archiv':appName);
   $('chip').innerHTML=room?`<span class="chip s-${room.status}"><i></i>${LABEL[room.status]}</span>`:'';
-  $('who').textContent=prof?`${prof.name} · ${isSup?'Haupt-Admin':isAdm?'Wahlleitung':'Mitarbeiter/in'}`:'';
+  $('who').textContent=prof?`${appName} · ${prof.name} · ${isSup?'Hauptwahlleiter':isAdm?'Wahlleiter':'Wähler'}`:appName;
   const tabs=$('tabs');
   if(me&&prof){
     const T=(p,t)=>`<button data-page="${p}" aria-selected="${page===p||(p==='rooms'&&page==='room')}">${t}</button>`;
-    tabs.innerHTML=(isAdm?T('vote','Wählen')+T('rooms','Wahlen verwalten')+(isSup?T('staff','Mitarbeitende'):'')+T('archive','Archiv'):'')+`<button class="ghost out" id="logout">Abmelden</button>`;
+    tabs.innerHTML=(isAdm?T('vote','Wählen')+T('rooms','Wahlen verwalten')+T('staff','Wähler')+T('themes','Designs')+T('archive','Archiv'):'')+`<button class="ghost out" id="logout">Abmelden</button>`;
     tabs.hidden=false;
   }else tabs.hidden=true;
   let h;
@@ -161,20 +193,21 @@ function render(){
   else if(!prof)h=noAccessView();
   else if(page==='rooms'&&isAdm)h=roomsView();
   else if(page==='room'&&isAdm)h=adminRoomView();
-  else if(page==='staff'&&isSup)h=staffView();
+  else if(page==='staff'&&isAdm)h=staffView();
+  else if(page==='themes'&&isAdm)h=themesView();
   else if(page==='archive'&&isAdm)h=archiveView();
   else h=vCode?voterRoomView():voterHomeView();
   $('main').innerHTML=h;
   if(page==='room'&&aCode)drawQR();
 }
 
-function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Mitarbeiter-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">E-Mail</label><input id="lE" type="email" autocomplete="username" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
-function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Mitarbeiterverzeichnis eingetragen. Wende dich an die Verwaltung.</p><button class="ghost" id="logout">Abmelden</button></div>`}
+function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Wähler-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">E-Mail</label><input id="lE" type="email" autocomplete="username" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
+function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Wählerverzeichnis eingetragen. Wende dich an deinen Wahlleiter.</p><button class="ghost" id="logout">Abmelden</button></div>`}
 
 /* ---------- Wähler ---------- */
 function voterHomeView(){
   const recent=(ls.get('wa_rooms')||[]).filter(Boolean);
-  return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir die Wahlleitung vor Ort nennt.</p>
+  return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir der Wahlleiter vor Ort nennt.</p>
   <form id="jf" class="row"><input id="jC" class="code" maxlength="8" autocomplete="off" placeholder="ABC-123" aria-label="Raum-Code"><button type="submit" class="red" ${busy?'disabled':''}>Beitreten</button></form>
   ${recent.length?`<p class="hint" style="margin:18px 0 6px">Zuletzt besucht</p><div class="row" style="gap:6px">${recent.map(c=>`<button class="ghost mini" data-join="${esc(c)}">${fmtCode(c)}</button>`).join('')}</div>`:''}</div>`;
 }
@@ -185,13 +218,13 @@ function voterRoomView(){
   if(!vLoaded)return`<div class="sheet"><p class="hint">Raum wird geöffnet …</p></div>`;
   if(!s)return`<div class="sheet"><h2>Raum nicht gefunden</h2><p class="hint">Den Raum ${fmtCode(vCode)} gibt es nicht (mehr).</p>${back}</div>`;
   if(!vMember)return`<div class="sheet"><h2>Nicht im Raum</h2><p class="hint">${vJoined?'Du bist nicht mehr in diesem Raum.':''} ${s.entryOpen&&!['ended','published'].includes(s.status)?'':'Der Einlass ist geschlossen.'}</p>${s.entryOpen&&!['ended','published'].includes(s.status)?`<button class="red" data-join="${vCode}">Beitreten</button>`:''}${back}</div>`;
-  if(!vMember.ok)return`<div class="sheet ballot"><h2>Warte auf Einlass</h2><p class="hint">Die Wahlleitung muss deinen Beitritt noch bestätigen. Diese Seite aktualisiert sich von selbst.</p>${back}</div>`;
+  if(!vMember.ok)return`<div class="sheet ballot"><h2>Warte auf Einlass</h2><p class="hint">Der Wahlleiter muss deinen Beitritt noch bestätigen. Diese Seite aktualisiert sich von selbst.</p>${back}</div>`;
   if(s.status==='published'&&vRes)return resultsView(vRes)+back;
   const done=!!vVote&&!editing,live=s.status==='running'&&!done,canChange=s.allowChange===true&&s.status==='running';
   let head='';
   if(s.status==='setup')head=`<p class="hint">Die Wahl hat noch nicht begonnen. Diese Personen stehen zur Wahl:</p>`;
   if(s.status==='paused')head=`<div class="note">Die Wahl ist gerade pausiert.${done&&s.allowChange?' Ändern oder Zurückziehen ist wieder möglich, sobald sie fortgesetzt wird.':' Du kannst wählen, sobald sie fortgesetzt wird.'}</div>`;
-  if(s.status==='ended'||s.status==='published')head=`<div class="note">Die Wahl ist beendet. Das Ergebnis wird von der Wahlleitung veröffentlicht.</div>`;
+  if(s.status==='ended'||s.status==='published')head=`<div class="note">Die Wahl ist beendet. Das Ergebnis wird vom Wahlleiter veröffentlicht.</div>`;
   if(live)head=`<p class="hint">${editing?'<b>Du änderst deine Stimme.</b> ':''}${modeText(s)} Tippe auf einen Namen, um ihn ${s.mode==='ranked'?'auf den nächsten Platz zu setzen':'anzukreuzen'}.</p>`;
   if(done){
     const list=vVote.choices.map((id,i)=>`<li>${s.mode==='ranked'?(i+1)+'. ':''}${esc(cname(s,id))}</li>`).join('');
@@ -285,7 +318,10 @@ function adminRoomView(){
     ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Person hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}
   </div>`;
   const danger=`<div class="sheet"><h2>Raum auflösen</h2><p class="hint">Löscht den Raum mit allen Stimmen, Teilnehmenden und dem Ergebnis endgültig. Gespeicherte Protokolle im Archiv bleiben erhalten.</p><button class="ghost" id="aDelRoom" ${busy?'disabled':''}>Raum endgültig löschen</button></div>`;
-  return codeBox+res+control+entry+cfg+danger;
+  const takeover=isSup?`<div class="sheet"${s.owner!==me.uid?' style="border-left:6px solid var(--red)"':''}><h2>Wahlleiter des Raums</h2>
+    <p class="hint">${s.owner===me.uid?'Du leitest diesen Raum selbst.':`Dieser Raum gehört <b>${esc(s.ownerName||nameOf(s.owner))}</b>. Als Hauptwahlleiter kannst du ihn trotzdem vollständig steuern – oder ihn übernehmen bzw. an einen anderen Wahlleiter übergeben.`}</p>
+    <div class="row"><select id="oSel" style="width:auto">${admins().map(a=>`<option value="${esc(a._id)}" ${a._id===s.owner?'selected':''}>${esc(a.name)}${a._id===me.uid?' (ich)':''}</option>`).join('')}</select><button class="ghost" id="oSet" ${busy?'disabled':''}>Übergeben</button>${s.owner!==me.uid?`<button class="red" id="oMe" ${busy?'disabled':''}>Selbst übernehmen</button>`:''}</div></div>`:'';
+  return codeBox+takeover+res+control+entry+cfg+danger;
 }
 
 let qrLib=null;
@@ -305,9 +341,9 @@ function protoHTML(r){
   const pl=(r.participants||[]).map((n,i)=>`<tr><td class="n">${i+1}</td><td>${esc(n)}</td></tr>`).join('');
   return`<h1>Wahlprotokoll</h1><div>${esc(r.title||'Wahl')} · Raum ${fmtCode(r.roomId)}</div>
   <h2>Angaben zur Wahl</h2><table class="meta">
-  <tr><td>Wahlleitung</td><td>${esc(r.ownerName||'–')}</td></tr>
+  <tr><td>Wahlleiter</td><td>${esc(r.ownerName||'–')}</td></tr>
   <tr><td>Wahlart</td><td>${r.mode==='ranked'?`Rangfolge, bis zu ${r.max} Plätze (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 Punkt weniger)`:`Allgemein, bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</td></tr>
-  <tr><td>Stimmberechtigung</td><td>Angemeldete Mitarbeitende mit Raum-Code${r.approval?', Beitritt durch Wahlleitung bestätigt':''}</td></tr>
+  <tr><td>Stimmberechtigung</td><td>Angemeldete Wähler mit Raum-Code${r.approval?', Beitritt durch den Wahlleiter bestätigt':''}</td></tr>
   <tr><td>Ändern/Zurückziehen</td><td>${r.allowChange?'erlaubt während der Wahl':'nicht erlaubt'}</td></tr>
   <tr><td>Wahl gestartet</td><td>${fmt(T.running)}</td></tr>
   <tr><td>Wahl beendet</td><td>${fmt(T.ended)}</td></tr>
@@ -318,19 +354,43 @@ function protoHTML(r){
   <h2>Ergebnis</h2><table><tr><th>Platz</th><th>Name</th><th>${unit}</th>${r.mode==='ranked'?'<th>× Platz 1</th><th>auf Stimmzetteln</th>':''}</tr>${rows}</table>
   ${pl?`<h2>Teilnehmende (${r.participants.length}, alphabetisch)</h2><table><tr><th>Nr.</th><th>Name</th></tr>${pl}</table><p style="font-size:9pt;color:#555">Die Liste zeigt nur, wer abgestimmt hat – nicht, was gewählt wurde.</p>`:''}
   ${bl?`<h2>Abgegebene Stimmzettel (anonym, zufällig sortiert)</h2><table><tr><th>Nr.</th><th>${r.mode==='ranked'?'Rangfolge':'Gewählt'}</th></tr>${bl}</table>`:''}
-  <div class="sig"><div>Ort, Datum</div><div>Unterschrift Wahlleitung</div></div>
+  <div class="sig"><div>Ort, Datum</div><div>Unterschrift Wahlleiter</div></div>
   <p style="font-size:9pt;color:#555;margin-top:18pt">Erstellt am ${fmt(Date.now())}</p>`;
 }
 function printProto(r){$('proto').innerHTML=protoHTML(r);setTimeout(()=>{try{window.print()}catch(e){toast('Drucken nicht möglich')}},50)}
 
-/* ---------- Mitarbeitende & Archiv ---------- */
+/* ---------- Wähler, Designs & Archiv ---------- */
+const admins=()=>staff.filter(u=>u._id===SUPER_UID||u.role==='admin');
+const nameOf=id=>staff.find(u=>u._id===id)?.name||(id===me?.uid?prof?.name:'')||'–';
 function staffView(){
-  return`<div class="sheet"><h2>Mitarbeiter/in anlegen</h2><p class="hint">Simuliert das Konzern-Verzeichnis: Nur hier eingetragene Konten können sich anmelden und wählen.</p>
-  <form id="sf"><div class="grid"><div><label for="sN">Name</label><input id="sN" required maxlength="60"></div><div><label for="sE">E-Mail</label><input id="sE" type="email" required></div>
-  <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div><div><label for="sR">Rolle</label><select id="sR"><option value="voter">Mitarbeiter/in (wählen)</option><option value="admin">Wahlleitung (Wahlen eröffnen)</option></select></div></div>
+  const list=staff.filter(u=>u._id!==me.uid&&(isSup||u.manager===me.uid)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  const mgrSel=(id,sel)=>`<select ${id}>${admins().map(a=>`<option value="${esc(a._id)}" ${a._id===sel?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`;
+  const role=u=>u._id===SUPER_UID?'Hauptwahlleiter':u.role==='admin'?'Wahlleiter':'Wähler';
+  return`<div class="sheet"><h2>${isSup?'Wähler oder Wahlleiter anlegen':'Wähler anlegen'}</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.${isSup?'':' Deine Wähler bekommen dein Design, wenn du nichts anderes wählst.'}</p>
+  <form id="sf"><div class="grid"><div><label for="sN">Name</label><input id="sN" required maxlength="60"></div><div><label for="sE">E-Mail (dient als Anmeldename)</label><input id="sE" type="email" required></div>
+  <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div>
+  <div><label for="sT">Design</label><select id="sT">${themeOpts(prof?.theme||'')}</select></div>
+  ${isSup?`<div><label for="sR">Rolle</label><select id="sR"><option value="voter">Wähler (wählen)</option><option value="admin">Wahlleiter (Wahlen eröffnen, eigene Wähler)</option></select></div><div><label for="sM">Zuständiger Wahlleiter</label>${mgrSel('id="sM"',me.uid)}</div>`:''}</div>
   <button type="submit" ${busy?'disabled':''}>Anlegen</button></form></div>
-  <div class="sheet"><h2>Verzeichnis (${staff.length})</h2>${staff.length?`<div class="list">${staff.sort((a,b)=>a.name.localeCompare(b.name,'de')).map(u=>`<div class="it"><span><div class="cname">${esc(u.name)}</div><div class="cinfo">${esc(u.email||'')} · ${u._id===SUPER_UID?'Haupt-Admin':u.role==='admin'?'Wahlleitung':'Mitarbeiter/in'}</div></span>
-  ${u._id===SUPER_UID?'':`<span class="row" style="gap:6px"><button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Mitarbeiter/in':'→ Wahlleitung'}</button><button class="ghost mini" data-pw="${esc(u.email||'')}">Passwort-Mail</button><button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button></span>`}</div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+  <div class="sheet"><h2>${isSup?'Alle Wähler und Wahlleiter':'Meine Wähler'} (${list.length})</h2>
+  ${list.length?`<div class="row" style="margin-bottom:12px"><label for="bulkT" style="margin:0">Allen ${isSup?'':'meinen '}Wählern Design geben:</label><select id="bulkT" style="width:auto">${themeOpts('')}</select><button class="ghost mini" id="bulkGo" ${busy?'disabled':''}>Zuweisen</button></div>`:''}
+  ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><div class="cname">${esc(u.name)}</div><div class="cinfo">${esc(u.email||'')} · ${role(u)}${isSup?` · bei ${esc(nameOf(u.manager||SUPER_UID))}`:''}</div>
+    <div class="row" style="gap:8px;margin-top:6px"><label style="margin:0" for="t_${esc(u._id)}">Design</label><select id="t_${esc(u._id)}" data-theme="${esc(u._id)}" style="width:auto;min-height:36px">${themeOpts(u.theme||'')}</select>${isSup&&u.role!=='admin'?`<label style="margin:0">Wahlleiter</label>${mgrSel(`data-mgr="${esc(u._id)}" style="width:auto;min-height:36px"`,u.manager||SUPER_UID)}`:''}</div></span>
+  <span class="row" style="gap:6px">${isSup?`<button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Wähler':'→ Wahlleiter'}</button>`:''}<button class="ghost mini" data-pw="${esc(u.email||'')}">Passwort-Mail</button><button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+}
+function themesView(){
+  const mine=themes.filter(t=>isSup||t.owner===me.uid),d=tDraft;
+  const editor=d?`<div class="sheet"><h2>${d._id?'Design bearbeiten':'Neues Design'}</h2>
+    <div class="grid"><div><label for="tN">Name des Designs</label><input id="tN" value="${esc(d.name)}" maxlength="40"></div><div><label for="tA">App-Name (Titel oben)</label><input id="tA" value="${esc(d.app)}" maxlength="40"></div></div>
+    <div class="row" style="gap:22px;margin-bottom:16px"><div><label for="tP">Hauptfarbe</label><input type="color" id="tP" value="${okHex(d.pri,'#18181b')}"></div><div><label for="tC">Akzent</label><input type="color" id="tC" value="${okHex(d.acc,'#c8201e')}"></div><div><label for="tB">Hintergrund</label><input type="color" id="tB" value="${okHex(d.bg,'#f3f1ea')}"></div></div>
+    <p class="hint">Hauptfarbe: Kopfleiste und Buttons · Akzent: Stempel, Gewinner, Hinweise · Hintergrund: Seitenfarbe im hellen Modus. Die Vorschau gilt sofort, gespeichert wird erst mit „Speichern“.</p>
+    <div class="row" style="justify-content:space-between"><button class="ghost" id="tCancel">Abbrechen</button><button class="red" id="tSave" ${busy?'disabled':''}>Speichern</button></div></div>`:'';
+  return`<div class="sheet"><h2>Mein Design</h2><p class="hint">So sieht die App für dich aus. Deinen Wählern weist du ein Design unter „Wähler“ zu.</p>
+  <select id="myT" style="max-width:360px">${themeOpts(prof?.theme||'')}</select></div>
+  ${editor}
+  <div class="sheet"><h2>${isSup?'Alle Designs':'Meine Designs'}</h2>
+  <div class="row" style="gap:6px;margin-bottom:14px"><span class="hint" style="margin:0">Neu aus Vorlage:</span>${PRESETS.map(p=>`<button class="ghost mini" data-preset="${p.key}">${swatch(p)} ${esc(p.name)}</button>`).join('')}</div>
+  ${mine.length?`<div class="list">${mine.map(t=>`<div class="it"><span class="row" style="gap:12px;flex-wrap:nowrap">${swatch(t)}<span><div class="cname">${esc(t.name)}</div><div class="cinfo">${esc(t.app)} · ${staff.filter(u=>u.theme===t._id).length} Personen${isSup&&t.owner!==me.uid?` · von ${esc(nameOf(t.owner))}`:''}</div></span></span><span class="row" style="gap:6px"><button class="ghost mini" data-tedit="${esc(t._id)}">Bearbeiten</button><button class="ghost mini" data-tdel="${esc(t._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine eigenen Designs. Starte mit einer Vorlage.</p>'}</div>`;
 }
 function archiveView(){
   const list=archive.filter(a=>isSup||a.owner===me.uid);
@@ -344,8 +404,9 @@ function startGlobal(){
   if(isAdm){
     gUnsub.push(D.onSnapshot(D.collection(fs,'rooms'),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
-  }
-  if(isSup)gUnsub.push(D.onSnapshot(D.collection(fs,'users'),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'users'):D.query(D.collection(fs,'users'),D.where('manager','==',me.uid)),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'themes'):D.query(D.collection(fs,'themes'),D.where('owner','==',me.uid)),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
+  }else{staff=[];themes=[];myRooms=[];archive=[]}
 }
 function openAdminRoom(code){
   off(aUnsub);aCode=code;aRoom=null;aMembers=[];aVotes=[];aRes=null;draft=null;page='room';render();
@@ -428,23 +489,34 @@ async function withdraw(){
   busy=false;render();
 }
 async function createStaff(f){
-  const name=f.elements.sN.value.trim(),email=f.elements.sE.value.trim().toLowerCase(),pw=f.elements.sP.value,role=f.elements.sR.value;
+  const el=f.elements,name=el.sN.value.trim(),email=el.sE.value.trim().toLowerCase(),pw=el.sP.value;
+  const role=isSup?el.sR.value:'voter',manager=isSup?(el.sM.value||me.uid):me.uid,theme=el.sT.value||null;
   if(!name||!email||pw.length<6){toast('Bitte alles ausfüllen (Passwort mind. 6 Zeichen)');return}
   busy=true;render();
   try{
     if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
     const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);
-    await D.setDoc(D.doc(fs,'users',c.user.uid),{name,email,role,created:Date.now()});
+    await D.setDoc(D.doc(fs,'users',c.user.uid),{name,email,role,manager,theme,created:Date.now()});
     await A.signOut(secAuth);toast(`${name} angelegt`);f.reset();
   }catch(e){toast(e.code==='auth/email-already-in-use'?'Diese E-Mail ist schon vergeben':e.code==='auth/invalid-email'?'Ungültige E-Mail':err(e))}
   busy=false;render();
+}
+const readDraft=()=>{if(!tDraft)return;const v=id=>$(id)?.value;tDraft={...tDraft,name:v('tN')??tDraft.name,app:v('tA')??tDraft.app,pri:v('tP')??tDraft.pri,acc:v('tC')??tDraft.acc,bg:v('tB')??tDraft.bg}};
+async function saveTheme(){
+  readDraft();const d=tDraft,name=d.name.trim(),app=d.app.trim();
+  if(!name||!app){toast('Bitte Name und App-Name eintragen');return}
+  if(![d.pri,d.acc,d.bg].every(x=>HEX.test(x))){toast('Ungültige Farbe');return}
+  busy=true;render();
+  try{const id=d._id||'t'+rnd(9),data={name:name.slice(0,40),app:app.slice(0,40),pri:d.pri,acc:d.acc,bg:d.bg,owner:d.owner||me.uid,updated:Date.now()};
+    await D.setDoc(D.doc(fs,'themes',id),data);tDraft=null;toast('Design gespeichert')}catch(e){toast(err(e))}
+  busy=false;applyTheme(curTheme);render();
 }
 
 /* ---------- Ereignisse ---------- */
 document.addEventListener('click',async e=>{
   const t=e.target.closest('button,[data-c]');if(!t)return;
   const ds=t.dataset;
-  if(ds.page){page=ds.page;if(page!=='room')off(aUnsub),aCode=null;render();return}
+  if(ds.page){page=ds.page;if(tDraft){tDraft=null;applyTheme(curTheme)}if(page!=='room')off(aUnsub),aCode=null;render();return}
   if(ds.c){if(t.classList.contains('off'))return;const s=vRoom,id=ds.c,i=pick.indexOf(id);
     if(i>=0)pick.splice(i,1);else if(pick.length<s.max)pick.push(id);else if(s.max===1)pick=[id];else toast(`Höchstens ${s.max} möglich`);render();return}
   if(ds.join){joinRoom(ds.join);return}
@@ -455,12 +527,15 @@ document.addEventListener('click',async e=>{
   if(ds.kick){if(await ask('Beitritt ablehnen?','Die Person wird aus dem Raum entfernt.','Ablehnen'))try{await D.deleteDoc(R(aCode,'members',ds.kick))}catch(x){toast(err(x))}return}
   if(ds.ap){const a=archive.find(x=>x._id===ds.ap);if(a)printProto(a);return}
   if(ds.ad){if(await ask('Protokoll löschen?','Das Protokoll wird endgültig aus dem Archiv entfernt.','Löschen'))try{await D.deleteDoc(D.doc(fs,'archive',ds.ad));toast('Gelöscht')}catch(x){toast(err(x))}return}
+  if(ds.preset){const p=PRESETS.find(x=>x.key===ds.preset);tDraft={name:p.key==='standard'?'Mein Design':p.name,app:p.app,pri:p.pri,acc:p.acc,bg:p.bg};applyTheme(tDraft);render();return}
+  if(ds.tedit){const t=themes.find(x=>x._id===ds.tedit);if(t){tDraft={...t};applyTheme(t);render()}return}
+  if(ds.tdel){const t=themes.find(x=>x._id===ds.tdel);if(t&&await ask(`Design „${t.name}“ löschen?`,'Wer dieses Design hat, sieht danach wieder das Standard-Design.','Löschen'))try{await D.deleteDoc(D.doc(fs,'themes',t._id));toast('Gelöscht')}catch(x){toast(err(x))}return}
   if(ds.role){const u=staff.find(x=>x._id===ds.role);if(u)try{await D.updateDoc(D.doc(fs,'users',u._id),{role:u.role==='admin'?'voter':'admin'})}catch(x){toast(err(x))}return}
   if(ds.pw!==undefined){if(!ds.pw)return toast('Keine E-Mail hinterlegt');try{await A.sendPasswordResetEmail(auth,ds.pw);toast('Mail zum Zurücksetzen verschickt')}catch(x){toast(err(x))}return}
   if(ds.rm){const u=staff.find(x=>x._id===ds.rm);if(u&&await ask(`${u.name} entfernen?`,'Die Person kann sich danach nicht mehr an Wahlen beteiligen. (Das Login-Konto selbst löschst du bei Bedarf in Firebase → Authentication.)','Entfernen'))try{await D.deleteDoc(D.doc(fs,'users',u._id))}catch(x){toast(err(x))}return}
   const s=aRoom;
   switch(t.id){
-    case 'logout':off(vUnsub);off(aUnsub);off(gUnsub);vCode=null;aCode=null;page='vote';await A.signOut(auth);break;
+    case 'logout':off(vUnsub);off(aUnsub);off(gUnsub);vCode=null;aCode=null;page='vote';tDraft=null;await A.signOut(auth);break;
     case 'lForgot':{const m=$('lE')?.value.trim();if(!m){toast('Bitte zuerst deine E-Mail eintragen');break}try{await A.sendPasswordResetEmail(auth,m);toast('Falls das Konto existiert, kommt gleich eine Mail')}catch(x){toast(err(x))}break}
     case 'vLeave':leaveVoterRoom();break;
     case 'clr':pick=[];render();break;
@@ -484,14 +559,26 @@ document.addEventListener('click',async e=>{
     case 'aPrint':if(aRes)printProto(protoData());break;
     case 'aArch':if(aRes){busy=true;render();try{await D.setDoc(D.doc(fs,'archive',`${aCode}_${aRes.publishedAt}`),{...protoData(),archivedAt:Date.now()});toast('Im Archiv gespeichert')}catch(x){toast(err(x))}busy=false;render()}break;
     case 'aDelRoom':deleteRoom();break;
+    case 'oMe':case 'oSet':{const to=t.id==='oMe'?me.uid:$('oSel').value;if(!to||to===s.owner)break;const nm=to===me.uid?prof.name:nameOf(to);
+      if(await ask('Raum übergeben?',`${nm} wird Wahlleiter dieses Raums und steht so im Protokoll. ${to===me.uid?'':'Du behältst als Hauptwahlleiter weiterhin Zugriff.'}`,'Übergeben'))saveRoom({owner:to,ownerName:nm});break}
+    case 'tCancel':tDraft=null;applyTheme(curTheme);render();break;
+    case 'tSave':saveTheme();break;
+    case 'bulkGo':{const tid=$('bulkT').value||null,list=staff.filter(u=>u._id!==me.uid&&(isSup||u.manager===me.uid)&&u.role!=='admin');
+      if(!list.length||!await ask('Design zuweisen?',`${list.length} Wähler bekommen das Design „${themeName(tid)}“.`,'Zuweisen'))break;
+      busy=true;render();try{for(let i=0;i<list.length;i+=100){const b=D.writeBatch(fs);list.slice(i,i+100).forEach(u=>b.update(D.doc(fs,'users',u._id),{theme:tid}));await b.commit()}toast('Design zugewiesen')}catch(x){toast(err(x))}busy=false;render();break}
   }
 });
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.dataset?.c){e.preventDefault();e.target.click()}});
-document.addEventListener('input',e=>{const t=e.target;if(!draft)return;
+document.addEventListener('input',e=>{const t=e.target;
+  if(['tP','tC','tB','tA'].includes(t.id)&&tDraft){readDraft();applyTheme(tDraft);$('title').textContent=page==='themes'?'Designs':appName;return}
+  if(!draft)return;
   if(t.dataset.n!==undefined)draft.cands[+t.dataset.n].name=t.value;
   else if(t.dataset.i!==undefined)draft.cands[+t.dataset.i].info=t.value;
   else if(t.id==='fMax')draft.max=t.value;else if(t.id==='fTitle')draft.title=t.value});
 document.addEventListener('change',async e=>{const t=e.target;
+  if(t.id==='myT'){try{await D.updateDoc(D.doc(fs,'users',me.uid),{theme:t.value||null});toast('Dein Design wurde geändert')}catch(x){toast(err(x))}return}
+  if(t.dataset.theme){try{await D.updateDoc(D.doc(fs,'users',t.dataset.theme),{theme:t.value||null});toast('Design zugewiesen')}catch(x){toast(err(x))}return}
+  if(t.dataset.mgr){try{await D.updateDoc(D.doc(fs,'users',t.dataset.mgr),{manager:t.value})}catch(x){toast(err(x))}return}
   if(t.id==='eOpen'){saveRoom({entryOpen:t.checked});return}
   if(!draft)return;if(t.id==='fChange')draft.allowChange=t.checked;if(t.id==='fApprove')draft.approval=t.checked});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;
@@ -505,20 +592,22 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
   try{[F,A,D]=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')])}
   catch(e){$('main').innerHTML=`<div class="sheet"><p class="hint">Konnte nicht laden. Bitte Internetverbindung prüfen und neu öffnen.</p></div>`;return}
   app=F.initializeApp(firebaseConfig);auth=A.getAuth(app);fs=D.getFirestore(app);
+  let profUnsub=null;
   A.onAuthStateChanged(auth,async u=>{
-    me=u&&!u.isAnonymous?u:null;prof=null;isSup=false;isAdm=false;off(gUnsub);
+    off(gUnsub);if(profUnsub){profUnsub();profUnsub=null}
+    me=u&&!u.isAnonymous?u:null;prof=null;isSup=false;isAdm=false;
     if(u?.isAnonymous){await A.signOut(auth);return}
-    if(me){
-      isSup=me.uid===SUPER_UID;
-      try{
-        let p=await D.getDoc(D.doc(fs,'users',me.uid));
-        if(!p.exists()&&isSup){await D.setDoc(D.doc(fs,'users',me.uid),{name:'Haupt-Admin',email:me.email||'',role:'admin',created:Date.now()});p=await D.getDoc(D.doc(fs,'users',me.uid))}
-        prof=p.exists()?p.data():null;
-      }catch(e){prof=null}
-      isAdm=isSup||prof?.role==='admin';
-      if(prof){startGlobal();if(pendingRoom&&!vCode){history.replaceState(null,'',baseUrl());joinRoom(pendingRoom)}}
-    }
-    authReady=true;render();
+    if(!me){if(themeUnsub){themeUnsub();themeUnsub=null}themeId=null;authReady=true;render();return}
+    isSup=me.uid===SUPER_UID;
+    if(isSup){try{const p=await D.getDoc(D.doc(fs,'users',me.uid));if(!p.exists())await D.setDoc(D.doc(fs,'users',me.uid),{name:'Hauptwahlleiter',email:me.email||'',role:'admin',manager:me.uid,theme:null,created:Date.now()})}catch(e){}}
+    let first=true,wasAdm=null;
+    profUnsub=D.onSnapshot(D.doc(fs,'users',me.uid),s=>{
+      prof=s.exists()?s.data():null;isAdm=!!prof&&(isSup||prof.role==='admin');
+      if(isAdm!==wasAdm){wasAdm=isAdm;off(gUnsub);if(prof)startGlobal();if(!isAdm&&page!=='vote'){off(aUnsub);aCode=null;page='vote'}}
+      watchTheme(prof?.theme||null);
+      if(first&&prof){first=false;if(pendingRoom&&!vCode){history.replaceState(null,'',baseUrl());joinRoom(pendingRoom)}}
+      authReady=true;render();
+    },()=>{prof=null;authReady=true;render()});
   });
 })();
 </script>
