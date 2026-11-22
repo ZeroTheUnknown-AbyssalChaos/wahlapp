@@ -404,7 +404,7 @@ function startGlobal(){
   if(isAdm){
     gUnsub.push(D.onSnapshot(D.collection(fs,'rooms'),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
-    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'users'):D.query(D.collection(fs,'users'),D.where('manager','==',me.uid)),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'users'):D.query(D.collection(fs,'users'),D.where('manager','==',me.uid)),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();backfillAccounts()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'themes'):D.query(D.collection(fs,'themes'),D.where('owner','==',me.uid)),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
   }else{staff=[];themes=[];myRooms=[];archive=[]}
 }
@@ -495,11 +495,28 @@ async function createStaff(f){
   busy=true;render();
   try{
     if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
-    const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);
-    await D.setDoc(D.doc(fs,'users',c.user.uid),{name,email,role,manager,theme,created:Date.now()});
-    await A.signOut(secAuth);toast(`${name} angelegt`);f.reset();
-  }catch(e){toast(e.code==='auth/email-already-in-use'?'Diese E-Mail ist schon vergeben':e.code==='auth/invalid-email'?'Ungültige E-Mail':err(e))}
+    const prof0={name,email,role,manager,theme,created:Date.now()};
+    let uid=null,revived=false;
+    try{const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);uid=c.user.uid;await A.signOut(secAuth)}
+    catch(e){
+      if(e.code!=='auth/email-already-in-use')throw e;
+      // Login-Konto existiert schon (z. B. früher entfernt) → über die Kontenliste wiederfinden
+      const acc=await D.getDoc(D.doc(fs,'accounts',email));
+      if(!acc.exists()){toast('Zu dieser E-Mail gibt es noch ein altes Login-Konto, das die App nicht kennt. Lösche es einmalig in Firebase → Authentication → Nutzer, dann klappt das Anlegen.');busy=false;render();return}
+      uid=acc.data().uid;
+      if((await D.getDoc(D.doc(fs,'users',uid))).exists()){toast('Diese Person ist schon im Verzeichnis');busy=false;render();return}
+      revived=true;
+    }
+    await D.setDoc(D.doc(fs,'users',uid),prof0);
+    await D.setDoc(D.doc(fs,'accounts',email),{uid,email});
+    toast(revived?`${name} wieder aufgenommen – es gilt das bisherige Passwort dieses Kontos`:`${name} angelegt`);f.reset();
+  }catch(e){toast(e.code==='auth/invalid-email'?'Ungültige E-Mail':e.code==='auth/weak-password'?'Passwort zu schwach (mind. 6 Zeichen)':err(e))}
   busy=false;render();
+}
+const mapped=new Set();
+async function backfillAccounts(){ // merkt sich E-Mail→Konto, damit entfernte Personen später wieder aufgenommen werden können
+  const todo=staff.filter(u=>u.email&&!mapped.has(u._id));todo.forEach(u=>mapped.add(u._id));
+  for(const u of todo){try{await D.setDoc(D.doc(fs,'accounts',String(u.email).toLowerCase()),{uid:u._id,email:String(u.email).toLowerCase()})}catch(e){}}
 }
 const readDraft=()=>{if(!tDraft)return;const v=id=>$(id)?.value;tDraft={...tDraft,name:v('tN')??tDraft.name,app:v('tA')??tDraft.app,pri:v('tP')??tDraft.pri,acc:v('tC')??tDraft.acc,bg:v('tB')??tDraft.bg}};
 async function saveTheme(){
@@ -532,7 +549,7 @@ document.addEventListener('click',async e=>{
   if(ds.tdel){const t=themes.find(x=>x._id===ds.tdel);if(t&&await ask(`Design „${t.name}“ löschen?`,'Wer dieses Design hat, sieht danach wieder das Standard-Design.','Löschen'))try{await D.deleteDoc(D.doc(fs,'themes',t._id));toast('Gelöscht')}catch(x){toast(err(x))}return}
   if(ds.role){const u=staff.find(x=>x._id===ds.role);if(u)try{await D.updateDoc(D.doc(fs,'users',u._id),{role:u.role==='admin'?'voter':'admin'})}catch(x){toast(err(x))}return}
   if(ds.pw!==undefined){if(!ds.pw)return toast('Keine E-Mail hinterlegt');try{await A.sendPasswordResetEmail(auth,ds.pw);toast('Mail zum Zurücksetzen verschickt')}catch(x){toast(err(x))}return}
-  if(ds.rm){const u=staff.find(x=>x._id===ds.rm);if(u&&await ask(`${u.name} entfernen?`,'Die Person kann sich danach nicht mehr an Wahlen beteiligen. (Das Login-Konto selbst löschst du bei Bedarf in Firebase → Authentication.)','Entfernen'))try{await D.deleteDoc(D.doc(fs,'users',u._id))}catch(x){toast(err(x))}return}
+  if(ds.rm){const u=staff.find(x=>x._id===ds.rm);if(u&&await ask(`${u.name} entfernen?`,'Die Person kann sich danach nicht mehr an Wahlen beteiligen. Du kannst sie später mit derselben E-Mail wieder aufnehmen – dann gilt ihr bisheriges Passwort.','Entfernen'))try{await D.deleteDoc(D.doc(fs,'users',u._id))}catch(x){toast(err(x))}return}
   const s=aRoom;
   switch(t.id){
     case 'logout':off(vUnsub);off(aUnsub);off(gUnsub);vCode=null;aCode=null;page='vote';tDraft=null;await A.signOut(auth);break;
