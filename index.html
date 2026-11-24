@@ -198,6 +198,7 @@ function render(){
   else if(page==='archive'&&isAdm)h=archiveView();
   else h=vCode?voterRoomView():voterHomeView();
   $('main').innerHTML=h;
+  if(isAdm&&(page==='archive'||(page==='room'&&aRes)))ensurePdf().catch(()=>{});
   if(page==='room'&&aCode)drawQR();
 }
 
@@ -211,7 +212,7 @@ function voterHomeView(){
   <form id="jf" class="row"><input id="jC" class="code" maxlength="8" autocomplete="off" placeholder="ABC-123" aria-label="Raum-Code"><button type="submit" class="red" ${busy?'disabled':''}>Beitreten</button></form>
   ${recent.length?`<p class="hint" style="margin:18px 0 6px">Zuletzt besucht</p><div class="row" style="gap:6px">${recent.map(c=>`<button class="ghost mini" data-join="${esc(c)}">${fmtCode(c)}</button>`).join('')}</div>`:''}</div>`;
 }
-function modeText(s){return s.mode==='ranked'?`Rangfolge: bis zu ${s.max} ${s.max==1?'Platz':'Plätze'} vergeben – Platz 1 zählt am meisten.`:`Du kannst bis zu ${s.max} ${s.max==1?'Person':'Personen'} wählen.`}
+function modeText(s){return s.mode==='ranked'?`Rangfolge: bis zu ${s.max} ${s.max==1?'Platz':'Plätze'} vergeben – Platz 1 zählt am meisten.`:`Du kannst bis zu ${s.max} ${s.max==1?'Option':'Optionen'} wählen.`}
 
 function voterRoomView(){
   const s=vRoom,back=`<div class="row" style="margin-top:4px"><button class="ghost mini" id="vLeave">← Anderer Raum</button><span class="hint" style="margin:0">Raum ${fmtCode(vCode)}</span></div>`;
@@ -222,10 +223,10 @@ function voterRoomView(){
   if(s.status==='published'&&vRes)return resultsView(vRes)+back;
   const done=!!vVote&&!editing,live=s.status==='running'&&!done,canChange=s.allowChange===true&&s.status==='running';
   let head='';
-  if(s.status==='setup')head=`<p class="hint">Die Wahl hat noch nicht begonnen. Diese Personen stehen zur Wahl:</p>`;
+  if(s.status==='setup')head=`<p class="hint">Die Wahl hat noch nicht begonnen. Das steht zur Wahl:</p>`;
   if(s.status==='paused')head=`<div class="note">Die Wahl ist gerade pausiert.${done&&s.allowChange?' Ändern oder Zurückziehen ist wieder möglich, sobald sie fortgesetzt wird.':' Du kannst wählen, sobald sie fortgesetzt wird.'}</div>`;
   if(s.status==='ended'||s.status==='published')head=`<div class="note">Die Wahl ist beendet. Das Ergebnis wird vom Wahlleiter veröffentlicht.</div>`;
-  if(live)head=`<p class="hint">${editing?'<b>Du änderst deine Stimme.</b> ':''}${modeText(s)} Tippe auf einen Namen, um ihn ${s.mode==='ranked'?'auf den nächsten Platz zu setzen':'anzukreuzen'}.</p>`;
+  if(live)head=`<p class="hint">${editing?'<b>Du änderst deine Stimme.</b> ':''}${modeText(s)} Tippe auf eine Option, um sie ${s.mode==='ranked'?'auf den nächsten Platz zu setzen':'anzukreuzen'}.</p>`;
   if(done){
     const list=vVote.choices.map((id,i)=>`<li>${s.mode==='ranked'?(i+1)+'. ':''}${esc(cname(s,id))}</li>`).join('');
     const acts=canChange?`<div class="row" style="margin-top:14px"><button class="ghost" id="vEdit" ${busy?'disabled':''}>Stimme ändern</button><button class="ghost" id="vDel" ${busy?'disabled':''}>Stimme zurückziehen</button></div>`:'';
@@ -234,7 +235,7 @@ function voterRoomView(){
   const body=s.cands?.length?`<ul class="cands">${s.cands.map(c=>{
       const i=pick.indexOf(c.id),on=i>=0&&live,mark=on?(s.mode==='ranked'?i+1:'✕'):'';
       return`<li class="cand ${on?'sel':''} ${live?'':'off'}" data-c="${esc(c.id)}" ${live?'role="button" tabindex="0"':''}><span class="box">${mark}</span><span><div class="cname">${esc(c.name)}</div>${c.info?`<div class="cinfo">${esc(c.info)}</div>`:''}</span></li>`}).join('')}</ul>`
-    :`<p class="hint">Es stehen noch keine Personen zur Wahl.</p>`;
+    :`<p class="hint">Es stehen noch keine Optionen zur Wahl.</p>`;
   const foot=live?`<div class="row" style="margin-top:18px;justify-content:space-between"><span class="hint" style="margin:0">${pick.length} von ${s.max} vergeben</span><div class="row">${editing?`<button class="ghost" id="vCancel">Abbrechen</button>`:pick.length?`<button class="ghost" id="clr">Zurücksetzen</button>`:''}<button class="red" id="cast" ${pick.length&&!busy?'':'disabled'}>${editing?'Änderung speichern':'Stimme abgeben'}</button></div></div>`:'';
   return`<div class="sheet ballot"><h2>Stimmzettel</h2>${head}${body}${foot}</div>${back}`;
 }
@@ -243,7 +244,7 @@ function resultsView(r){
   const top=r.rows[0]?.points||0,unit=r.mode==='ranked'?'Punkte':'Stimmen';let rank=0,prev=null;
   const rows=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}
     return`<div class="res ${rank===1&&x.points>0?'win':''}"><span class="rk">${rank}.</span><span class="cname">${esc(x.name)}</span><span class="num">${x.points} ${unit}</span><span class="bar"><b style="width:${top?x.points/top*100:0}%"></b></span>${r.mode==='ranked'?`<span class="cinfo" style="grid-column:2/4">${x.first}× auf Platz 1 · auf ${x.votes} Stimmzetteln</span>`:''}</div>`}).join('');
-  return`<div class="sheet ballot"><h2>Ergebnis</h2><p class="hint">${r.ballots} gültige Stimmzettel · ${r.mode==='ranked'?`Rangfolge (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 weniger)`:`bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</p>${rows||'<p class="hint">Keine Personen.</p>'}</div>`;
+  return`<div class="sheet ballot"><h2>Ergebnis</h2><p class="hint">${r.ballots} gültige Stimmzettel · ${r.mode==='ranked'?`Rangfolge (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 weniger)`:`bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</p>${rows||'<p class="hint">Keine Optionen.</p>'}</div>`;
 }
 
 /* ---------- Admin: Raumliste ---------- */
@@ -265,16 +266,18 @@ function tally(){
     ch.forEach((id,i)=>{t[id].votes++;t[id].points+=s.mode==='ranked'?s.max-i:1;if(i===0)t[id].first++});
   });
   const rows=Object.values(t).sort((a,b)=>b.points-a.points||b.first-a.first||a.name.localeCompare(b.name));
-  return{roomId:aCode,title:s.title,owner:s.owner,ownerName:s.ownerName||'',mode:s.mode,max:s.max,allowChange:s.allowChange===true,approval:s.approval===true,
+  return{roomId:aCode,title:s.title,owner:s.owner,ownerName:ownerNameOf(s.owner,s.ownerName||''),mode:s.mode,max:s.max,allowChange:s.allowChange===true,approval:s.approval===true,
     present:aMembers.filter(m=>m.ok).length,times:{...(s.times||{}),published:Date.now()},ballots:n,rows,publishedAt:Date.now()};
 }
-function ballotList(){
-  const s=aRoom,ids=new Set(s.cands.map(c=>c.id));
-  const l=aVotes.filter(v=>Array.isArray(v.choices)).map(v=>[...new Set(v.choices)].filter(x=>ids.has(x)).slice(0,s.max).map(id=>cname(s,id)).join(s.mode==='ranked'?' > ':', ')).filter(Boolean);
-  for(let i=l.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[l[i],l[j]]=[l[j],l[i]]}
-  return l;
+// Teilnehmerliste: wer im Raum war und ob abgestimmt wurde – nie, was jemand gewählt hat
+function attendees(){
+  const ids=voterIds(),own=aRoom?.owner;
+  const l=aMembers.filter(m=>m.ok).map(m=>({name:m.name||'?',voted:ids.has(m._id),lead:m._id===own}));
+  if(!l.some(a=>a.lead))l.push({name:ownerNameOf(own,aRoom?.ownerName||''),voted:false,lead:true,onlyLead:true});
+  return l.sort((a,b)=>(b.lead-a.lead)||a.name.localeCompare(b.name,'de'));
 }
-const protoData=()=>({...aRes,ballotList:ballotList(),participants:participants()});
+const ownerNameOf=(uid,fb)=>uid&&me&&uid===me.uid?prof?.name||fb:staff.find(u=>u._id===uid)?.name||fb;
+const protoData=()=>({...aRes,owner:aRoom?.owner||aRes.owner,ownerName:ownerNameOf(aRoom?.owner||aRes.owner,aRoom?.ownerName||aRes.ownerName),attendees:attendees()});
 
 function adminRoomView(){
   const s=aRoom;
@@ -288,7 +291,7 @@ function adminRoomView(){
   if(s.status==='running')ctrl=Bt('aPause','Wahl pausieren','ghost')+Bt('aEnd','Wahl beenden');
   if(s.status==='paused')ctrl=Bt('aStart','Wahl fortsetzen','red')+Bt('aEnd','Wahl beenden');
   if(s.status==='ended')ctrl=Bt('aPub','Ergebnis veröffentlichen','red');
-  if(s.status==='published')ctrl=Bt('aPrint','Protokoll drucken / PDF','red',!aRes)+Bt('aArch','Im Archiv speichern','',!aRes);
+  if(s.status==='published')ctrl=Bt('aPrint','Druck zu PDF','red',!aRes)+Bt('aArch','Im Archiv speichern','',!aRes);
   const link=`${baseUrl()}?r=${aCode}`;
   const codeBox=`<div class="sheet ballot"><div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Raum-Code</div><div class="c">${fmtCode(aCode)}</div>
     <div class="row" style="margin-top:12px"><button class="ghost mini" id="aLink">Link kopieren</button><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div></div><div id="qr" aria-label="QR-Code zum Beitreten"></div></div></div>`;
@@ -296,7 +299,7 @@ function adminRoomView(){
     <div class="stats"><div><div class="big">${n}<span style="font-size:.45em;color:var(--mute)"> / ${ok.length}</span></div><div class="hint" style="margin:0">Stimmzettel / im Raum</div></div><div class="hint" style="margin:0;max-width:330px">${s.status==='published'?'Das Ergebnis ist für alle im Raum sichtbar.':'Das Ergebnis bleibt verborgen – auch hier –, bis du es nach dem Beenden veröffentlichst.'}</div></div>
     <div class="ctrl">${ctrl}</div>
     <p class="hint" style="margin:12px 0 0">Ändern/Zurückziehen: <b>${s.allowChange?'erlaubt':'nicht erlaubt'}</b> · Beitritt: <b>${s.approval?'mit Bestätigung':'direkt'}</b></p>
-    ${setup&&!s.cands.length?`<p class="hint" style="margin-top:10px">Füge unten Personen hinzu und speichere, dann kannst du starten.</p>`:''}
+    ${setup&&!s.cands.length?`<p class="hint" style="margin-top:10px">Füge unten Wahloptionen hinzu und speichere, dann kannst du starten.</p>`:''}
   </div>`;
   const entry=`<div class="sheet"><h2>Einlass</h2>
     <label class="switch"><input type="checkbox" id="eOpen" ${s.entryOpen?'checked':''} ${closed||busy?'disabled':''}> Einlass offen – neue Personen können mit dem Code beitreten</label>
@@ -306,16 +309,16 @@ function adminRoomView(){
   </div>`;
   const res=s.status==='published'&&aRes?resultsView(aRes):'';
   const dis=setup?'':'disabled';
-  const cfg=`<div class="sheet"><h2>Wahl einrichten</h2>${setup?'':`<div class="note">Einstellungen und Kandidat/innen sind gesperrt, sobald die Wahl gestartet wurde.</div>`}
+  const cfg=`<div class="sheet"><h2>Wahl einrichten</h2>${setup?'':`<div class="note">Einstellungen und Wahloptionen sind gesperrt, sobald die Wahl gestartet wurde.</div>`}
     <div style="margin-bottom:16px"><label for="fTitle">Titel</label><input id="fTitle" value="${esc(d.title)}" ${dis} maxlength="80"></div>
     <div class="grid"><div><label>Wahlart</label><div class="seg"><button data-mode="free" aria-pressed="${d.mode==='free'}" ${dis}>Allgemein</button><button data-mode="ranked" aria-pressed="${d.mode==='ranked'}" ${dis}>Reihenfolge</button></div></div>
     <div><label for="fMax">${d.mode==='ranked'?'Plätze pro Stimmzettel':'Stimmen pro Person (bis zu)'}</label><input id="fMax" type="number" min="1" value="${d.max}" ${dis}></div></div>
     <p class="hint">${d.mode==='ranked'?'Wähler/innen sortieren ihre Favoriten. Platz 1 bringt so viele Punkte wie Plätze vergeben werden, jeder weitere einen weniger.':'Jede Person kreuzt bis zur festgelegten Zahl an; jedes Kreuz zählt eine Stimme.'}</p>
     <label class="switch"><input type="checkbox" id="fChange" ${d.allowChange?'checked':''} ${dis}> Stimme ändern/zurückziehen erlauben (nur solange die Wahl läuft)</label>
     <label class="switch" style="margin-bottom:16px"><input type="checkbox" id="fApprove" ${d.approval?'checked':''} ${dis}> Beitritt nur nach Bestätigung durch mich</label>
-    <label>Zur Wahl stehen</label>
-    ${d.cands.map((c,i)=>`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Name" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="Info (optional)" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join('')||'<p class="hint">Noch niemand eingetragen.</p>'}
-    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Person hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}
+    <label>Wahloptionen</label>
+    ${d.cands.map((c,i)=>`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Option (Person oder Sache)" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="Info (optional)" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join('')||'<p class="hint">Noch niemand eingetragen.</p>'}
+    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Option hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}
   </div>`;
   const danger=`<div class="sheet"><h2>Raum auflösen</h2><p class="hint">Löscht den Raum mit allen Stimmen, Teilnehmenden und dem Ergebnis endgültig. Gespeicherte Protokolle im Archiv bleiben erhalten.</p><button class="ghost" id="aDelRoom" ${busy?'disabled':''}>Raum endgültig löschen</button></div>`;
   const takeover=isSup?`<div class="sheet"${s.owner!==me.uid?' style="border-left:6px solid var(--red)"':''}><h2>Wahlleiter des Raums</h2>
@@ -334,11 +337,18 @@ function drawQR(){
 }
 
 /* ---------- Protokoll ---------- */
+function protoStats(r){
+  let list;
+  if(r.attendees)list=r.attendees;
+  else list=[...(r.participants||[]).map(n=>({name:n,voted:true})),...(r.abstained||[]).map(n=>({name:n,voted:false}))].sort((a,b)=>a.name.localeCompare(b.name,'de'));
+  const voters=list.filter(a=>!a.onlyLead),present=list.length?voters.length:(r.present??null);
+  return{list,present,abst:voters.filter(a=>!a.voted).length,known:list.length>0,turnout:present?Math.round(r.ballots/present*100):null};
+}
+const roleOf=a=>a.onlyLead?'Wahlleiter':a.lead?'Wahlleiter, Wähler':'Wähler';
 function protoHTML(r){
   const unit=r.mode==='ranked'?'Punkte':'Stimmen',T=r.times||{};let rank=0,prev=null;
   const rows=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}return`<tr><td class="n">${rank}.</td><td>${esc(x.name)}</td><td class="n">${x.points}</td>${r.mode==='ranked'?`<td class="n">${x.first}</td><td class="n">${x.votes}</td>`:''}</tr>`}).join('');
-  const bl=(r.ballotList||[]).map((b,i)=>`<tr><td class="n">${i+1}</td><td>${esc(b)}</td></tr>`).join('');
-  const pl=(r.participants||[]).map((n,i)=>`<tr><td class="n">${i+1}</td><td>${esc(n)}</td></tr>`).join('');
+  const P=protoStats(r);
   return`<h1>Wahlprotokoll</h1><div>${esc(r.title||'Wahl')} · Raum ${fmtCode(r.roomId)}</div>
   <h2>Angaben zur Wahl</h2><table class="meta">
   <tr><td>Wahlleiter</td><td>${esc(r.ownerName||'–')}</td></tr>
@@ -348,14 +358,78 @@ function protoHTML(r){
   <tr><td>Wahl gestartet</td><td>${fmt(T.running)}</td></tr>
   <tr><td>Wahl beendet</td><td>${fmt(T.ended)}</td></tr>
   <tr><td>Ergebnis veröffentlicht</td><td>${fmt(T.published||r.publishedAt)}</td></tr>
-  <tr><td>Im Raum anwesend</td><td>${r.present??'–'}</td></tr>
-  <tr><td>Gültige Stimmzettel</td><td>${r.ballots}${r.present?` (Beteiligung ${Math.round(r.ballots/r.present*100)} %)`:''}</td></tr>
+  <tr><td>Im Raum anwesend</td><td>${P.present??'–'}</td></tr>
+  <tr><td>Abgegebene Stimmen</td><td>${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} %)`:''}</td></tr>
+  <tr><td>Enthaltungen</td><td>${P.known?P.abst:'–'}</td></tr>
   </table>
-  <h2>Ergebnis</h2><table><tr><th>Platz</th><th>Name</th><th>${unit}</th>${r.mode==='ranked'?'<th>× Platz 1</th><th>auf Stimmzetteln</th>':''}</tr>${rows}</table>
-  ${pl?`<h2>Teilnehmende (${r.participants.length}, alphabetisch)</h2><table><tr><th>Nr.</th><th>Name</th></tr>${pl}</table><p style="font-size:9pt;color:#555">Die Liste zeigt nur, wer abgestimmt hat – nicht, was gewählt wurde.</p>`:''}
-  ${bl?`<h2>Abgegebene Stimmzettel (anonym, zufällig sortiert)</h2><table><tr><th>Nr.</th><th>${r.mode==='ranked'?'Rangfolge':'Gewählt'}</th></tr>${bl}</table>`:''}
+  <h2>Ergebnis</h2><table><tr><th>Platz</th><th>Option</th><th>${unit}</th>${r.mode==='ranked'?'<th>× Platz 1</th><th>auf Stimmzetteln</th>':''}</tr>${rows}</table>
+  ${P.list.length?`<h2>Teilnehmerliste (${P.list.length})</h2><table><tr><th>Nr.</th><th>Name</th><th>Rolle</th><th style="text-align:center">Abgestimmt</th></tr>${P.list.map((a,i)=>`<tr><td class="n">${i+1}</td><td>${esc(a.name)}</td><td>${roleOf(a)}</td><td style="text-align:center;font-size:13pt">${a.voted?'☒':'☐'}</td></tr>`).join('')}</table>`:''}
+  <p style="font-size:9pt;color:#555">Das Protokoll enthält keine Angaben darüber, wer was gewählt hat.</p>
   <div class="sig"><div>Ort, Datum</div><div>Unterschrift Wahlleiter</div></div>
   <p style="font-size:9pt;color:#555;margin-top:18pt">Erstellt am ${fmt(Date.now())}</p>`;
+}
+/* ---------- PDF (direkt erzeugt) ---------- */
+/* PDF_CORE_START */
+const pdfTxt=s=>String(s??'').replace(/[–—]/g,'-').replace(/[“”„]/g,'"').replace(/[‘’‚]/g,"'").replace(/…/g,'...').replace(/✓/g,'x').replace(/[^\x00-\xff]/g,'?');
+function pdfName(r){
+  const slug=String(r.title||'Wahl').replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/Ä/g,'Ae').replace(/Ö/g,'Oe').replace(/Ü/g,'Ue').replace(/ß/g,'ss').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40)||'Wahl';
+  const d=new Date(r.times?.published||r.publishedAt||Date.now()),day=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return`Wahlprotokoll_${slug}_${fmtCode(r.roomId)}_${day}.pdf`;
+}
+function makePdf(r,J){
+  const doc=new J({unit:'mm',format:'a4'}),M=16,W=210-2*M,T=pdfTxt,TT=r.times||{},P=protoStats(r);
+  const tbl=(o)=>{doc.autoTable({theme:'grid',margin:{left:M,right:M,bottom:20},styles:{font:'helvetica',fontSize:10,cellPadding:1.8,lineColor:[150,150,150],lineWidth:.2,textColor:20,overflow:'linebreak'},headStyles:{fillColor:[235,235,235],textColor:20,fontStyle:'bold'},...o});return doc.lastAutoTable.finalY};
+  const h2=(t,y)=>{if(y>262){doc.addPage();y=M}doc.setFont('helvetica','bold');doc.setFontSize(13);doc.text(T(t),M,y+8);return y+11};
+  doc.setFont('helvetica','bold');doc.setFontSize(20);doc.text('Wahlprotokoll',M,M+6);
+  doc.setFont('helvetica','normal');doc.setFontSize(11);doc.text(T(`${r.title||'Wahl'} · Raum ${fmtCode(r.roomId)}`),M,M+13);
+  let y=h2('Angaben zur Wahl',M+16);
+  const meta=[['Wahlleiter',r.ownerName||'-'],
+    ['Wahlart',r.mode==='ranked'?`Rangfolge, bis zu ${r.max} Plätze (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 Punkt weniger)`:`Allgemein, bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`],
+    ['Stimmberechtigung',`Angemeldete Wähler mit Raum-Code${r.approval?', Beitritt durch den Wahlleiter bestätigt':''}`],
+    ['Ändern/Zurückziehen',r.allowChange?'erlaubt während der Wahl':'nicht erlaubt'],
+    ['Wahl gestartet',fmt(TT.running)],['Wahl beendet',fmt(TT.ended)],['Ergebnis veröffentlicht',fmt(TT.published||r.publishedAt)],
+    ['Im Raum anwesend',String(P.present??'-')],['Abgegebene Stimmen',`${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} %)`:''}`],['Enthaltungen',P.known?String(P.abst):'-']].map(a=>a.map(T));
+  y=tbl({startY:y,body:meta,columnStyles:{0:{cellWidth:58,fontStyle:'bold'}}});
+  y=h2('Ergebnis',y+2);
+  let rank=0,prev=null;const ranked=r.mode==='ranked';
+  const body=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}return[rank+'.',T(x.name),String(x.points),...(ranked?[String(x.first),String(x.votes)]:[])]});
+  y=tbl({startY:y,head:[['Platz','Option',ranked?'Punkte':'Stimmen',...(ranked?['× Platz 1','auf Stimmzetteln']:[])]],body,columnStyles:{0:{cellWidth:16,halign:'right'},2:{halign:'right',cellWidth:24},3:{halign:'right',cellWidth:24},4:{halign:'right',cellWidth:32}}});
+  if(P.list.length){y=h2(`Teilnehmerliste (${P.list.length})`,y+2);
+    y=tbl({startY:y,head:[['Nr.','Name','Rolle','Abgestimmt']],body:P.list.map((a,i)=>[String(i+1),T(a.name),roleOf(a),'']),
+      columnStyles:{0:{cellWidth:16,halign:'right'},2:{cellWidth:44},3:{cellWidth:28,halign:'center'}},
+      didDrawCell:c=>{if(c.section!=='body'||c.column.index!==3)return;const a=P.list[c.row.index],s=4,x=c.cell.x+c.cell.width/2-s/2,yy=c.cell.y+c.cell.height/2-s/2;
+        doc.setDrawColor(40);doc.setLineWidth(.3);doc.rect(x,yy,s,s);
+        if(a.voted){doc.setLineWidth(.5);doc.line(x+.8,yy+2.1,x+1.7,yy+3.1);doc.line(x+1.7,yy+3.1,x+3.3,yy+.9)}}})}
+  doc.setFont('helvetica','italic');doc.setFontSize(8.5);doc.text(T('Das Protokoll enthält keine Angaben darüber, wer was gewählt hat.'),M,y+5);y+=6;
+  if(y>250){doc.addPage();y=M}
+  y+=22;doc.setDrawColor(0);doc.setLineWidth(.3);doc.line(M,y,M+W/2-8,y);doc.line(M+W/2+8,y,M+W,y);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text('Ort, Datum',M,y+4);doc.text('Unterschrift Wahlleiter',M+W/2+8,y+4);
+  const n=doc.getNumberOfPages(),made=T(`Erstellt am ${fmt(Date.now())}`);
+  for(let i=1;i<=n;i++){doc.setPage(i);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(110);doc.text(made,M,287);doc.text(`Seite ${i} von ${n}`,210-M,287,{align:'right'});doc.setTextColor(0)}
+  return doc;
+}
+/* PDF_CORE_END */
+const PDF_JS=['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'];
+let pdfLib=null;
+const loadScript=src=>new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=no;document.head.appendChild(s)});
+const pdfReady=()=>!!(window.jspdf?.jsPDF?.API?.autoTable);
+function ensurePdf(){if(pdfReady())return Promise.resolve();if(!pdfLib)pdfLib=loadScript(PDF_JS[0]).then(()=>loadScript(PDF_JS[1])).catch(e=>{pdfLib=null;throw e});return pdfLib}
+async function exportPdf(r){
+  let doc;
+  try{if(!pdfReady()){toast('PDF wird vorbereitet …');await ensurePdf()}doc=makePdf(r,window.jspdf.jsPDF)}
+  catch(e){toast('PDF-Erstellung nicht möglich – Druckansicht wird geöffnet');printProto(r);return}
+  const name=pdfName(r),blob=doc.output('blob');
+  let file=null;try{file=new File([blob],name,{type:'application/pdf'})}catch(e){}
+  const mobile=matchMedia('(pointer:coarse)').matches;
+  if(mobile&&file&&navigator.canShare?.({files:[file]})){
+    const share=()=>navigator.share({files:[file],title:name});
+    try{await share();return}catch(e){
+      if(e.name==='AbortError')return;
+      // Teilen braucht einen frischen Tipp, wenn das Vorbereiten zu lange gedauert hat
+      if(await ask('PDF ist fertig','Tippe auf „Teilen“, um es in Dateien zu sichern, zu senden oder zu drucken.','Teilen')){try{await share();return}catch(x){if(x.name==='AbortError')return}}
+    }
+  }
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);toast('PDF gespeichert: '+name);
 }
 function printProto(r){$('proto').innerHTML=protoHTML(r);setTimeout(()=>{try{window.print()}catch(e){toast('Drucken nicht möglich')}},50)}
 
@@ -366,7 +440,9 @@ function staffView(){
   const list=staff.filter(u=>u._id!==me.uid&&(isSup||u.manager===me.uid)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
   const mgrSel=(id,sel)=>`<select ${id}>${admins().map(a=>`<option value="${esc(a._id)}" ${a._id===sel?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`;
   const role=u=>u._id===SUPER_UID?'Hauptwahlleiter':u.role==='admin'?'Wahlleiter':'Wähler';
-  return`<div class="sheet"><h2>${isSup?'Wähler oder Wahlleiter anlegen':'Wähler anlegen'}</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.${isSup?'':' Deine Wähler bekommen dein Design, wenn du nichts anderes wählst.'}</p>
+  const mine=`<div class="sheet"><h2>Mein Profil</h2><p class="hint">Dieser Name steht als Wahlleiter im Protokoll und in der Raumliste.</p>
+  <form id="pf" class="row"><input id="pName" value="${esc(prof?.name||'')}" maxlength="60" required style="max-width:340px" aria-label="Mein Name"><button type="submit" ${busy?'disabled':''}>Name speichern</button></form></div>`;
+  return mine+`<div class="sheet"><h2>${isSup?'Wähler oder Wahlleiter anlegen':'Wähler anlegen'}</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.${isSup?'':' Deine Wähler bekommen dein Design, wenn du nichts anderes wählst.'}</p>
   <form id="sf"><div class="grid"><div><label for="sN">Name</label><input id="sN" required maxlength="60"></div><div><label for="sE">E-Mail (dient als Anmeldename)</label><input id="sE" type="email" required></div>
   <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div>
   <div><label for="sT">Design</label><select id="sT">${themeOpts(prof?.theme||'')}</select></div>
@@ -395,14 +471,14 @@ function themesView(){
 function archiveView(){
   const list=archive.filter(a=>isSup||a.owner===me.uid);
   return`<div class="sheet"><h2>Wahlprotokolle</h2><p class="hint">Gespeicherte Protokolle bleiben erhalten, auch wenn der Raum gelöscht wird.</p>
-  ${list.length?`<div class="list">${list.map(a=>`<div class="it"><span><div class="cname">${esc(a.title||'Wahl')}</div><div class="cinfo">Raum ${fmtCode(a.roomId)} · ${fmt(a.times?.published||a.publishedAt)} · ${a.ballots} Stimmzettel${isSup&&a.owner!==me.uid?' · '+esc(a.ownerName||''):''}</div></span><span class="row" style="gap:6px"><button class="ghost mini" data-ap="${esc(a._id)}">Drucken / PDF</button><button class="ghost mini" data-ad="${esc(a._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Protokolle gespeichert.</p>'}</div>`;
+  ${list.length?`<div class="list">${list.map(a=>`<div class="it"><span><div class="cname">${esc(a.title||'Wahl')}</div><div class="cinfo">Raum ${fmtCode(a.roomId)} · ${fmt(a.times?.published||a.publishedAt)} · ${a.ballots} Stimmzettel${isSup&&a.owner!==me.uid?' · '+esc(a.ownerName||''):''}</div></span><span class="row" style="gap:6px"><button class="ghost mini" data-ap="${esc(a._id)}">Druck zu PDF</button><button class="ghost mini" data-ad="${esc(a._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Protokolle gespeichert.</p>'}</div>`;
 }
 
 /* ---------- Daten-Abos ---------- */
 function startGlobal(){
   off(gUnsub);
   if(isAdm){
-    gUnsub.push(D.onSnapshot(D.collection(fs,'rooms'),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'rooms'):D.query(D.collection(fs,'rooms'),D.where('owner','==',me.uid)),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'users'):D.query(D.collection(fs,'users'),D.where('manager','==',me.uid)),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();backfillAccounts()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'themes'):D.query(D.collection(fs,'themes'),D.where('owner','==',me.uid)),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
@@ -542,7 +618,7 @@ document.addEventListener('click',async e=>{
   if(ds.del){draft.cands.splice(+ds.del,1);render();return}
   if(ds.ok){try{await D.updateDoc(R(aCode,'members',ds.ok),{ok:true})}catch(x){toast(err(x))}return}
   if(ds.kick){if(await ask('Beitritt ablehnen?','Die Person wird aus dem Raum entfernt.','Ablehnen'))try{await D.deleteDoc(R(aCode,'members',ds.kick))}catch(x){toast(err(x))}return}
-  if(ds.ap){const a=archive.find(x=>x._id===ds.ap);if(a)printProto(a);return}
+  if(ds.ap){const a=archive.find(x=>x._id===ds.ap);if(a)exportPdf(a);return}
   if(ds.ad){if(await ask('Protokoll löschen?','Das Protokoll wird endgültig aus dem Archiv entfernt.','Löschen'))try{await D.deleteDoc(D.doc(fs,'archive',ds.ad));toast('Gelöscht')}catch(x){toast(err(x))}return}
   if(ds.preset){const p=PRESETS.find(x=>x.key===ds.preset);tDraft={name:p.key==='standard'?'Mein Design':p.name,app:p.app,pri:p.pri,acc:p.acc,bg:p.bg};applyTheme(tDraft);render();return}
   if(ds.tedit){const t=themes.find(x=>x._id===ds.tedit);if(t){tDraft={...t};applyTheme(t);render()}return}
@@ -565,7 +641,7 @@ document.addEventListener('click',async e=>{
     case 'aLink':copy(`${baseUrl()}?r=${aCode}`);break;
     case 'aAdd':draft.cands.push({id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:'',info:''});render();setTimeout(()=>{const l=document.querySelectorAll('[data-n]');l[l.length-1]?.focus()});break;
     case 'aSave':{const c=draft.cands.map(x=>({id:x.id,name:x.name.trim(),info:(x.info||'').trim()})).filter(x=>x.name);
-      if(!c.length){toast('Mindestens eine Person eintragen');return}
+      if(!c.length){toast('Mindestens eine Option eintragen');return}
       const patch={title:(draft.title||'').trim()||'Wahl',mode:draft.mode==='ranked'?'ranked':'free',max:Math.min(Math.max(1,parseInt(draft.max)||1),c.length),cands:c,allowChange:!!draft.allowChange,approval:!!draft.approval};
       draft=null;await saveRoom(patch);toast('Gespeichert');break}
     case 'aStart':if(await ask(s.status==='paused'?'Wahl fortsetzen?':'Wahl starten?','Ab jetzt können alle im Raum abstimmen.','Starten'))saveRoom({status:'running'});break;
@@ -573,7 +649,7 @@ document.addEventListener('click',async e=>{
     case 'aEnd':if(await ask('Wahl beenden?','Danach kann niemand mehr abstimmen.','Beenden'))saveRoom({status:'ended',entryOpen:false});break;
     case 'aPub':if(await ask('Ergebnis veröffentlichen?','Das Ergebnis wird für dich und alle im Raum sichtbar.','Veröffentlichen')){
       await saveRoom({status:'published',results:tally()})}break;
-    case 'aPrint':if(aRes)printProto(protoData());break;
+    case 'aPrint':if(aRes)exportPdf(protoData());break;
     case 'aArch':if(aRes){busy=true;render();try{await D.setDoc(D.doc(fs,'archive',`${aCode}_${aRes.publishedAt}`),{...protoData(),archivedAt:Date.now()});toast('Im Archiv gespeichert')}catch(x){toast(err(x))}busy=false;render()}break;
     case 'aDelRoom':deleteRoom();break;
     case 'oMe':case 'oSet':{const to=t.id==='oMe'?me.uid:$('oSel').value;if(!to||to===s.owner)break;const nm=to===me.uid?prof.name:nameOf(to);
@@ -602,6 +678,10 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
   if(f.id==='lf'){const em=f.elements.lE.value.trim(),pw=f.elements.lP.value;busy=true;render();try{await A.signInWithEmailAndPassword(auth,em,pw)}catch(x){toast('Anmeldung fehlgeschlagen – E-Mail oder Passwort falsch')}busy=false;render()}
   if(f.id==='jf')joinRoom(f.elements.jC.value);
   if(f.id==='sf')createStaff(f);
+  if(f.id==='pf'){const nm=f.elements.pName.value.trim().slice(0,60);if(!nm)return;busy=true;render();
+    try{await D.updateDoc(D.doc(fs,'users',me.uid),{name:nm});
+      const own=myRooms.filter(r=>r.owner===me.uid);for(let i=0;i<own.length;i+=100){const b=D.writeBatch(fs);own.slice(i,i+100).forEach(r=>b.update(R(r._id),{ownerName:nm}));await b.commit()}
+      toast('Name gespeichert')}catch(x){toast(err(x))}busy=false;render()}
 });
 
 /* ---------- Start ---------- */
