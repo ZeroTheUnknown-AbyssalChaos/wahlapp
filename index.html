@@ -179,7 +179,7 @@ let myRooms=[],aCode=null,aRoom=null,aMembers=[],aVotes=[],aRes=null,aUnsub=[],s
 const pendingRoom=norm(new URLSearchParams(location.search).get('r'));
 
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3400)}
-function ask(title,body,yes='Bestätigen'){return new Promise(r=>{const d=$('dlg');$('dT').textContent=title;$('dB').textContent=body;$('dYes').textContent=yes;
+function ask(title,body,yes='Bestätigen',no='Abbrechen'){return new Promise(r=>{const d=$('dlg');$('dT').textContent=title;$('dB').textContent=body;$('dYes').textContent=yes;$('dNo').textContent=no;
   const done=v=>{d.close();$('dYes').onclick=$('dNo').onclick=null;r(v)};$('dYes').onclick=()=>done(true);$('dNo').onclick=()=>done(false);d.showModal()})}
 const err=e=>e?.code==='permission-denied'?'Keine Berechtigung (oder Aktion gerade nicht erlaubt).':(e?.code||e?.message||'Unbekannter Fehler');
 const off=arr=>{arr.forEach(u=>{try{u()}catch(e){}});arr.length=0};
@@ -218,7 +218,7 @@ function render(){
   if(page==='room'&&aCode){drawQR('qr',aCode);if(aRoom?.pubCode)drawQR('qr2',aRoom.pubCode)}
 }
 
-function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Wähler-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">Benutzername oder E-Mail</label><input id="lE" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
+function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Wähler-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">Benutzername oder E-Mail</label><input id="lE" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="z. B. max.mustermann oder max@beispiel.de" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
 function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Wählerverzeichnis eingetragen. Wende dich an deinen Wahlleiter.</p><button class="ghost" id="logout">Abmelden</button></div>`}
 
 /* ---------- Wähler ---------- */
@@ -525,7 +525,7 @@ async function exportPdf(r){
 function printProto(r){$('proto').innerHTML=protoHTML(r);setTimeout(()=>{try{window.print()}catch(e){toast('Drucken nicht möglich')}},50)}
 
 /* ---------- Wähler, Designs & Archiv ---------- */
-const admins=()=>staff.filter(u=>u._id===SUPER_UID||u.role==='admin');
+const admins=()=>staff;
 const LOGIN_DOMAIN='wahlapp.local'; // interne Domain für Konten ohne echte E-Mail
 const toLogin=v=>{v=String(v||'').trim().toLowerCase();return v.includes('@')?v:v+'@'+LOGIN_DOMAIN};
 const userOf=u=>u?.username||(u?.email?(u.email.endsWith('@'+LOGIN_DOMAIN)?u.email.split('@')[0]:u.email):'');
@@ -542,30 +542,37 @@ async function loginCandidates(raw){ // Benutzername → mögliche Login-Adresse
 }
 const realMail=e=>!!e&&!String(e).endsWith('@'+LOGIN_DOMAIN);
 const nameOf=id=>staff.find(u=>u._id===id)?.name||(id===me?.uid?prof?.name:'')||'–';
-const role=u=>u._id===SUPER_UID?'Hauptwahlleiter':u.role==='admin'?'Wahlleiter':'Wähler';
+const role=u=>{if(u._id===SUPER_UID)return'Hauptwahlleiter';const L=groups.filter(g=>(g.leaders||[]).includes(u._id)).map(g=>g.name);return L.length?`Wahlleiter (${L.join(', ')})`:'Wähler'};
 function staffView(){
-  if(!isSup){ // Wahlleiter: Mitglieder der eigenen Gruppen (nur ansehen)
+  if(!isSup){ // Wahlleiter: Konten nur für die eigenen Gruppen
     const lg=leadGroups();
-    return`<div class="sheet"><h2>Wähler meiner Gruppen</h2><p class="hint">Mitglieder und Gruppen verwaltet der Hauptwahlleiter.</p>${lg.length?lg.map(g=>{const ms=staff.filter(u=>(u.groups||[]).includes(g._id)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
-      return`<h2 style="font-size:17px;margin:16px 0 6px">${esc(g.name)} (${ms.length})</h2>${ms.length?`<div class="row" style="gap:6px">${ms.map(u=>`<span class="chip plain">${esc(u.name)} <small style="opacity:.65">(${esc(userOf(u))})</small></span>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Mitglieder.</p>'}`}).join(''):'<p class="hint" style="margin:0">Du bist noch keiner Gruppe als Wahlleiter zugeordnet.</p>'}</div>`;
+    if(!lg.length)return`<div class="sheet"><h2>Wähler</h2><p class="hint" style="margin:0">Du leitest zurzeit keine Gruppe.</p></div>`;
+    return lg.map(g=>{const ms=staff.filter(u=>(u.groups||[]).includes(g._id)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+      return`<div class="sheet"><h2>${esc(g.name)} (${ms.length})</h2>
+      <p class="hint">Lade Personen in diese Gruppe ein – immer als Wähler. Gibt es den Benutzernamen schon, fragt die App, ob du das bestehende Konto einladen willst. Wahlleiter ernennt der Hauptwahlleiter.</p>
+      <form class="lf-new" data-g="${esc(g._id)}"><div class="grid"><div><label>Anzeigename</label><input name="n" required maxlength="60" placeholder="z. B. Max Mustermann"></div><div><label>Benutzername (fest, zum Anmelden)</label><input name="u" required autocapitalize="none" spellcheck="false" placeholder="z. B. max.mustermann"></div>
+      <div><label>E-Mail (für „Passwort vergessen?“ – zum Testen auch Fantasie-Adresse)</label><input name="m" type="email" required autocomplete="off" placeholder="name@beispiel.de"></div>
+      <div><label>Start-Passwort (mind. 6 Zeichen)</label><input name="p" type="text" minlength="6" required autocomplete="off"></div></div><button type="submit" ${busy?'disabled':''}>Einladen</button></form>
+      <form class="lf-add row" data-g="${esc(g._id)}" style="margin-top:14px"><input name="u" required autocapitalize="none" spellcheck="false" placeholder="Benutzername eines vorhandenen Kontos" style="max-width:320px" aria-label="Benutzername"><button type="submit" class="ghost" ${busy?'disabled':''}>Bestehendes Konto einladen</button></form>
+      ${ms.length?`<div class="list" style="margin-top:14px">${ms.map(u=>`<div class="it"><span><span class="cname">${esc(u.name)}</span> <span class="cinfo">${esc(userOf(u))}${(g.leaders||[]).includes(u._id)?' · Wahlleiter':''}</span></span><button class="ghost mini" data-gout="${esc(g._id)}|${esc(u._id)}">Aus Gruppe nehmen</button></div>`).join('')}</div>`:'<p class="hint" style="margin:14px 0 0">Noch keine Mitglieder.</p>'}</div>`}).join('');
   }
   const list=[...staff].sort((a,b)=>(a._id===me.uid?-1:b._id===me.uid?1:a.name.localeCompare(b.name,'de')));
   const gBoxes=(name,sel)=>groups.length?groups.map(g=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" ${name} value="${esc(g._id)}" ${sel.includes(g._id)?'checked':''}> ${esc(g.name)}</label>`).join(''):'<span class="hint" style="margin:0">Noch keine Gruppen – lege sie unter „Gruppen“ an.</span>';
-  return`<div class="sheet"><h2>Wähler oder Wahlleiter anlegen</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.</p>
-  <form id="sf"><div class="grid"><div><label for="sN">Anzeigename</label><input id="sN" required maxlength="60" placeholder="z. B. Max Mustermann"></div><div><label for="sE">Benutzername (fest, zum Anmelden) – oder E-Mail</label><input id="sE" type="text" required autocapitalize="none" spellcheck="false" placeholder="z. B. max.mustermann"></div>
-  <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div>
-  <div><label for="sR">Rolle</label><select id="sR"><option value="voter">Wähler</option><option value="admin">Wahlleiter (kann Gruppen leiten)</option></select></div></div>
-  <label>Gruppen (Mitglied)</label><div class="row" style="gap:14px;margin-bottom:14px">${gBoxes('name="sG"',[])}</div>
+  return`<div class="sheet"><h2>Konto in die App einladen</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden. Wahlleiter ernennst du pro Gruppe unter „Gruppen“.</p>
+  <form id="sf"><div class="grid"><div><label for="sN">Anzeigename</label><input id="sN" required maxlength="60" placeholder="z. B. Max Mustermann"></div><div><label for="sE">Benutzername (fest, zum Anmelden)</label><input id="sE" type="text" required autocapitalize="none" spellcheck="false" placeholder="z. B. max.mustermann"></div>
+  <div><label for="sM">E-Mail (für „Passwort vergessen?“ – zum Testen auch Fantasie-Adresse)</label><input id="sM" type="email" required autocomplete="off" placeholder="name@beispiel.de"></div>
+  <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div></div>
+  <label>Gruppen (Mitglied, optional)</label><div class="row" style="gap:14px;margin-bottom:14px">${gBoxes('name="sG"',[])}</div>
   <button type="submit" ${busy?'disabled':''}>Anlegen</button></form></div>
-  <div class="sheet"><h2>Alle Wähler und Wahlleiter (${list.length})</h2>
-  ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><input class="cname" data-uname="${esc(u._id)}" value="${esc(u.name)}" maxlength="60" aria-label="Name" style="min-height:38px;padding:4px 8px;max-width:320px;font-weight:600"><div class="cinfo">Benutzer: <b>${esc(userOf(u))}</b> · ${role(u)}${(u.role==='admin'||u._id===SUPER_UID)&&groups.some(g=>(g.leaders||[]).includes(u._id))?` · leitet: ${esc(groups.filter(g=>(g.leaders||[]).includes(u._id)).map(g=>g.name).join(', '))}`:''}</div>
+  <div class="sheet"><h2>Alle Konten (${list.length})</h2>
+  ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><input class="cname" data-uname="${esc(u._id)}" value="${esc(u.name)}" maxlength="60" aria-label="Name" style="min-height:38px;padding:4px 8px;max-width:320px;font-weight:600"><div class="cinfo">Benutzer: <b>${esc(userOf(u))}</b> · ${esc(role(u))}</div>
     <div class="row" style="gap:12px;margin-top:6px"><span class="hint" style="margin:0;font-size:14px">Mitglied in:</span>${gBoxes(`data-ugrp="${esc(u._id)}"`,u.groups||[])}</div></span>
-  <span class="row" style="gap:6px">${u._id!==me.uid?`<button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Wähler':'→ Wahlleiter'}</button>`:''}${realMail(u.email)?`<button class="ghost mini" data-pw="${esc(u.email)}">Passwort-Mail</button>`:''}${u._id!==me.uid?`<button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button>`:''}</span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+  <span class="row" style="gap:6px">${realMail(u.email)?`<button class="ghost mini" data-pw="${esc(u.email)}">Passwort-Mail</button>`:''}${u._id!==me.uid?`<button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button>`:''}</span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
 }
 function groupsView(){
   const ads=admins();
   const leadBoxes=(attr,sel)=>ads.map(a=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" ${attr} value="${esc(a._id)}" ${sel.includes(a._id)?'checked':''}> ${esc(a._id===me.uid?a.name+' (ich)':a.name)}</label>`).join('');
-  return`<div class="sheet"><h2>Neue Gruppe</h2><p class="hint">Eine Gruppe hat genau ein Design und beliebig viele Wahlleiter. Ohne eingetragenen Wahlleiter leitest du sie als Hauptwahlleiter.</p>
+  return`<div class="sheet"><h2>Neue Gruppe</h2><p class="hint">Eine Gruppe hat genau ein Design und beliebig viele Wahlleiter. Wahlleiter gilt nur für diese Gruppe – in anderen Gruppen ist dieselbe Person normaler Wähler. Ohne eingetragenen Wahlleiter leitest du sie als Hauptwahlleiter.</p>
   <form id="gf"><div class="grid"><div><label for="gN">Name</label><input id="gN" required maxlength="40" placeholder="z. B. THW OV Musterstadt"></div><div><label for="gT">Design</label><select id="gT">${themeOpts('')}</select></div></div>
   <label>Wahlleiter</label><div class="row" style="gap:14px;margin-bottom:14px">${leadBoxes('name="gL"',[])}</div>
   <button type="submit" ${busy?'disabled':''}>Gruppe anlegen</button></form></div>
@@ -595,12 +602,12 @@ function archiveView(){
 /* ---------- Daten-Abos ---------- */
 function startGlobal(){
   off(gUnsub);
-  gUnsub.push(D.onSnapshot(D.collection(fs,'groups'),q=>{groups=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
+  gUnsub.push(D.onSnapshot(D.collection(fs,'groups'),q=>{groups=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render();if(isSup&&staff.length)syncLeads()},()=>{}));
   gUnsub.push(D.onSnapshot(D.collection(fs,'themes'),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
   if(isAdm){
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'rooms'):D.query(D.collection(fs,'rooms'),D.where('leaders','array-contains',me.uid)),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
-    gUnsub.push(D.onSnapshot(D.collection(fs,'users'),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();if(isSup)backfillAccounts()},()=>{}));
+    gUnsub.push(D.onSnapshot(D.collection(fs,'users'),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();if(isSup){backfillAccounts();syncLeads()}},()=>{}));
   }else{staff=[];myRooms=[];archive=[]}
 }
 function openAdminRoom(code){
@@ -691,35 +698,53 @@ async function withdraw(){
   try{await D.deleteDoc(R(vCode,'votes',me.uid));pick=[];toast('Stimme zurückgezogen')}catch(e){toast(err(e))}
   busy=false;render();
 }
+async function createAccount(name,raw,mail,pw,grps){ // true = angelegt/eingeladen
+  const username=String(raw||'').trim().toLowerCase(),email=String(mail||'').trim().toLowerCase();name=String(name||'').trim();
+  if(!/^[a-z0-9][a-z0-9._-]{2,39}$/.test(username)){toast('Benutzername: 3–40 Zeichen, nur a–z, 0–9, Punkt, Strich, Unterstrich');return false}
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast('Bitte eine E-Mail im Format name@domain.de eintragen (zum Testen geht auch eine Fantasie-Adresse)');return false}
+  if(!name||pw.length<6){toast('Bitte alles ausfüllen (Passwort mind. 6 Zeichen)');return false}
+  // gibt es das Konto schon? → statt neu anlegen in die Gruppe einladen
+  const ex=staff.find(u=>userOf(u)===username||String(u.email||'').toLowerCase()===email);
+  if(!ex){try{const l=await D.getDoc(D.doc(fs,'logins',username));if(l.exists()){toast(`Der Benutzername „${username}“ ist schon vergeben. Bitte einen anderen wählen.`);return false}}catch(e){}}
+  if(ex){
+    const missing=grps.filter(g=>!(ex.groups||[]).includes(g));
+    const what=userOf(ex)===username?`Der Benutzername „${username}“`:`Die E-Mail ${email}`;
+    if(!missing.length){toast(`${what} gehört schon zu ${ex.name}${grps.length?', der bereits in der Gruppe ist':''}. Bitte andere Angaben verwenden.`);return false}
+    const gn=missing.map(g=>grpOf(g)?.name||'?').join(', ');
+    if(await ask('Konto gibt es schon',`${what} gehört bereits zu ${ex.name} (${userOf(ex)}). Möchtest du dieses bestehende Konto in ${gn} einladen – oder lieber ein anderes Konto mit anderen Angaben anlegen?`,'Bestehendes Konto einladen','Andere Angaben verwenden')){
+      for(const g of missing)await setMembership(ex._id,g,true);toast(`${ex.name} in ${gn} eingeladen`);return true}
+    toast('Bitte andere Angaben eintragen');return false;
+  }
+  if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
+  let uid=null,revived=false;
+  try{const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);uid=c.user.uid;await A.signOut(secAuth)}
+  catch(e){
+    if(e.code!=='auth/email-already-in-use'){toast(e.code==='auth/invalid-email'?'Ungültiger Benutzername bzw. E-Mail':e.code==='auth/weak-password'?'Passwort zu schwach (mind. 6 Zeichen)':err(e));return false}
+    const acc=await D.getDoc(D.doc(fs,'accounts',email)).catch(()=>null);
+    if(!acc?.exists()){toast('Zu dieser E-Mail gibt es noch ein altes Login-Konto, das die App nicht kennt. Der Hauptwahlleiter muss es einmalig in Firebase → Authentication löschen.');return false}
+    uid=acc.data().uid;
+    if(staff.some(u=>u._id===uid)){toast('Dieses Konto gibt es schon – nimm es mit „Vorhandenes Konto aufnehmen“ in die Gruppe auf.');return false}
+    revived=true;
+  }
+  await D.setDoc(D.doc(fs,'users',uid),{name,username,email,groups:grps,leads:[],theme:null,created:Date.now()});
+  try{await D.setDoc(D.doc(fs,'accounts',email),{uid,email})}catch(e){}
+  try{await D.setDoc(D.doc(fs,'logins',username),{uid,email})}catch(e){}
+  toast(revived?`${name} wieder aufgenommen – es gilt das bisherige Passwort dieses Kontos`:`${name} angelegt`);return true;
+}
 async function createStaff(f){
-  const el=f.elements,name=el.sN.value.trim(),raw=el.sE.value.trim().toLowerCase(),pw=el.sP.value;
-  if(!raw.includes('@')&&!/^[a-z0-9][a-z0-9._-]{2,39}$/.test(raw)){toast('Benutzername: 3–40 Zeichen, nur a–z, 0–9, Punkt, Strich, Unterstrich');return}
-  const email=toLogin(raw),username=raw.includes('@')?raw:raw;
-  const role=el.sR.value==='admin'?'admin':'voter',grps=[...f.querySelectorAll('input[name=sG]:checked')].map(x=>x.value);
-  if(!name||!email||pw.length<6){toast('Bitte alles ausfüllen (Passwort mind. 6 Zeichen)');return}
-  busy=true;render();
-  try{
-    if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
-    const prof0={name,username,email,role,groups:grps,theme:null,created:Date.now()};
-    let uid=null,revived=false;
-    try{const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);uid=c.user.uid;await A.signOut(secAuth)}
-    catch(e){
-      if(e.code!=='auth/email-already-in-use')throw e;
-      // Login-Konto existiert schon (z. B. früher entfernt) → über die Kontenliste wiederfinden
-      const acc=await D.getDoc(D.doc(fs,'accounts',email));
-      if(!acc.exists()){toast('Zu diesem Benutzernamen gibt es noch ein altes Login-Konto, das die App nicht kennt. Lösche es einmalig in Firebase → Authentication → Nutzer, dann klappt das Anlegen.');busy=false;render();return}
-      uid=acc.data().uid;
-      if((await D.getDoc(D.doc(fs,'users',uid))).exists()){toast('Diese Person ist schon im Verzeichnis');busy=false;render();return}
-      revived=true;
-    }
-    await D.setDoc(D.doc(fs,'users',uid),prof0);
-    await D.setDoc(D.doc(fs,'accounts',email),{uid,email});
-    if(!username.includes('@')){try{await D.setDoc(D.doc(fs,'logins',username),{uid,email})}catch(e){}}
-    toast(revived?`${name} wieder aufgenommen – es gilt das bisherige Passwort dieses Kontos`:`${name} angelegt`);f.reset();
-  }catch(e){toast(e.code==='auth/invalid-email'?'Ungültiger Benutzername bzw. E-Mail':e.code==='auth/weak-password'?'Passwort zu schwach (mind. 6 Zeichen)':err(e))}
-  busy=false;render();
+  const el=f.elements,grps=[...f.querySelectorAll('input[name=sG]:checked')].map(x=>x.value);
+  busy=true;render();try{if(await createAccount(el.sN.value,el.sE.value,el.sM.value,el.sP.value,grps))f.reset()}catch(e){toast(err(e))}busy=false;render();
+}
+async function setMembership(uid,gid,on){
+  const u=staff.find(x=>x._id===uid);if(!u)return false;const set=new Set(u.groups||[]);on?set.add(gid):set.delete(gid);
+  await D.updateDoc(D.doc(fs,'users',uid),{groups:[...set]});return true;
 }
 const mapped=new Set();
+async function syncLeads(){ // Hauptwahlleiter: user.leads = Gruppen, in denen die Person Wahlleiter ist
+  if(!isSup||!groups.length&&!staff.some(u=>(u.leads||[]).length))return;
+  for(const u of staff){const want=groups.filter(g=>(g.leaders||[]).includes(u._id)).map(g=>g._id).sort(),have=[...(u.leads||[])].sort();
+    if(JSON.stringify(want)!==JSON.stringify(have)){try{await D.updateDoc(D.doc(fs,'users',u._id),{leads:want})}catch(e){}}}
+}
 async function backfillAccounts(){ // merkt sich E-Mail→Konto, damit entfernte Personen später wieder aufgenommen werden können
   const todo=staff.filter(u=>u.email&&!mapped.has(u._id));todo.forEach(u=>mapped.add(u._id));
   for(const u of todo){try{await D.setDoc(D.doc(fs,'accounts',String(u.email).toLowerCase()),{uid:u._id,email:String(u.email).toLowerCase()})}catch(e){}
@@ -762,7 +787,8 @@ document.addEventListener('click',async e=>{
   if(ds.preset){const p=PRESETS.find(x=>x.key===ds.preset);tDraft={name:p.key==='standard'?'Mein Design':p.name,app:p.app,pri:p.pri,acc:p.acc,bg:p.bg};applyTheme(tDraft);render();return}
   if(ds.tedit){const t=themes.find(x=>x._id===ds.tedit);if(t){tDraft={...t};applyTheme(t);render()}return}
   if(ds.tdel){const t=themes.find(x=>x._id===ds.tdel);if(t&&await ask(`Design „${t.name}“ löschen?`,'Wer dieses Design hat, sieht danach wieder das Standard-Design.','Löschen'))try{await D.deleteDoc(D.doc(fs,'themes',t._id));toast('Gelöscht')}catch(x){toast(err(x))}return}
-  if(ds.role){const u=staff.find(x=>x._id===ds.role);if(u)try{await D.updateDoc(D.doc(fs,'users',u._id),{role:u.role==='admin'?'voter':'admin'})}catch(x){toast(err(x))}return}
+  if(ds.gout){const [gid,uid]=ds.gout.split('|'),u=staff.find(x=>x._id===uid),g=grpOf(gid);
+    if(u&&g&&await ask(`${u.name} aus „${g.name}“ nehmen?`,'Das Konto bleibt bestehen, gehört aber nicht mehr zu dieser Gruppe.','Herausnehmen'))try{await setMembership(uid,gid,false);toast('Aus der Gruppe genommen')}catch(x){toast(err(x))}return}
   if(ds.pw!==undefined){if(!ds.pw)return toast('Keine E-Mail hinterlegt');try{await A.sendPasswordResetEmail(auth,ds.pw);toast('Mail zum Zurücksetzen verschickt')}catch(x){toast(err(x))}return}
   if(ds.rm){const u=staff.find(x=>x._id===ds.rm);if(u&&await ask(`${u.name} entfernen?`,'Die Person kann sich danach nicht mehr an Wahlen beteiligen. Du kannst sie später mit derselben E-Mail wieder aufnehmen – dann gilt ihr bisheriges Passwort.','Entfernen'))try{await D.deleteDoc(D.doc(fs,'users',u._id))}catch(x){toast(err(x))}return}
   const s=aRoom;
@@ -812,7 +838,7 @@ document.addEventListener('change',async e=>{const t=e.target;
   if(t.dataset.ugrp){const u=staff.find(x=>x._id===t.dataset.ugrp);if(!u)return;const set=new Set(u.groups||[]);t.checked?set.add(t.value):set.delete(t.value);
     try{await D.updateDoc(D.doc(fs,'users',u._id),{groups:[...set]});toast('Gruppen geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
   if(t.dataset.glead){const g=grpOf(t.dataset.glead);if(!g)return;const set=new Set(g.leaders||[]);t.checked?set.add(t.value):set.delete(t.value);const L=[...set];
-    try{await D.updateDoc(D.doc(fs,'groups',g._id),{leaders:L});const rs=myRooms.filter(r=>r.group===g._id);for(let i=0;i<rs.length;i+=100){const b=D.writeBatch(fs);rs.slice(i,i+100).forEach(r=>b.update(R(r._id),{leaders:L}));await b.commit()}toast('Wahlleiter geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
+    try{await D.updateDoc(D.doc(fs,'groups',g._id),{leaders:L});const u=staff.find(x=>x._id===t.value);if(u){const ls=new Set(u.leads||[]);t.checked?ls.add(g._id):ls.delete(g._id);await D.updateDoc(D.doc(fs,'users',u._id),{leads:[...ls]})}const rs=myRooms.filter(r=>r.group===g._id);for(let i=0;i<rs.length;i+=100){const b=D.writeBatch(fs);rs.slice(i,i+100).forEach(r=>b.update(R(r._id),{leaders:L}));await b.commit()}toast('Wahlleiter geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
   if(t.dataset.gtheme){try{await D.updateDoc(D.doc(fs,'groups',t.dataset.gtheme),{theme:t.value||null});toast('Design der Gruppe geändert')}catch(x){toast(err(x))}return}
   if(t.dataset.gname){const g=grpOf(t.dataset.gname),nm=t.value.trim().slice(0,40);if(!g||!nm||nm===g.name){if(g)t.value=g.name;return}try{await D.updateDoc(D.doc(fs,'groups',g._id),{name:nm});toast('Name geändert')}catch(x){t.value=g.name;toast(err(x))}return}
   if(t.dataset.candu&&draft){const u=staff.find(x=>x._id===t.dataset.candu);if(!u||!(u.groups||[]).includes(aRoom?.group))return;
@@ -830,6 +856,13 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
     if(!ok)toast(last?.code==='auth/too-many-requests'?'Zu viele Versuche – bitte kurz warten':'Anmeldung fehlgeschlagen – Benutzername oder Passwort falsch');busy=false;render()}
   if(f.id==='jf')joinRoom(f.elements.jC.value);
   if(f.id==='sf')createStaff(f);
+  if(f.classList.contains('lf-new')){const gid=f.dataset.g;if(!leadGroups().some(g=>g._id===gid))return;const el=f.elements;busy=true;render();
+    try{if(await createAccount(el.n.value,el.u.value,el.m.value,el.p.value,[gid]))f.reset()}catch(x){toast(err(x))}busy=false;render()}
+  if(f.classList.contains('lf-add')){const gid=f.dataset.g,un=f.elements.u.value.trim().toLowerCase();if(!un||!leadGroups().some(g=>g._id===gid))return;
+    const u=staff.find(x=>userOf(x)===un||String(x.email||'').toLowerCase()===un);
+    if(!u){toast('Kein Konto mit diesem Benutzernamen gefunden');return}
+    if((u.groups||[]).includes(gid)){toast(`${u.name} ist schon in der Gruppe`);return}
+    busy=true;render();try{await setMembership(u._id,gid,true);toast(`${u.name} aufgenommen`);f.reset()}catch(x){toast(err(x))}busy=false;render()}
   if(f.id==='gf'){const nm=f.elements.gN.value.trim().slice(0,40),th=f.elements.gT.value||null,L=[...f.querySelectorAll('input[name=gL]:checked')].map(x=>x.value);
     if(!nm){toast('Bitte einen Namen eintragen');return}busy=true;render();
     try{await D.setDoc(D.doc(fs,'groups','g'+rnd(9)),{name:nm,theme:th,leaders:L,created:Date.now()});toast('Gruppe angelegt');f.reset()}catch(x){toast(err(x))}busy=false;render()}
@@ -868,10 +901,10 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
     if(u?.isAnonymous){await A.signOut(auth);return}
     if(!me){if(themeUnsub){themeUnsub();themeUnsub=null}themeId=null;authReady=true;render();return}
     isSup=me.uid===SUPER_UID;
-    if(isSup){try{const p=await D.getDoc(D.doc(fs,'users',me.uid));if(!p.exists())await D.setDoc(D.doc(fs,'users',me.uid),{name:'Hauptwahlleiter',email:me.email||'',role:'admin',groups:[],theme:null,created:Date.now()})}catch(e){}}
+    if(isSup){try{const p=await D.getDoc(D.doc(fs,'users',me.uid));if(!p.exists())await D.setDoc(D.doc(fs,'users',me.uid),{name:'Hauptwahlleiter',email:me.email||'',groups:[],leads:[],theme:null,created:Date.now()})}catch(e){}}
     let first=true,wasAdm=null;
     profUnsub=D.onSnapshot(D.doc(fs,'users',me.uid),s=>{
-      prof=s.exists()?s.data():null;isAdm=!!prof&&(isSup||prof.role==='admin');
+      prof=s.exists()?s.data():null;isAdm=!!prof&&(isSup||(prof.leads||[]).length>0);
       if(isAdm!==wasAdm){wasAdm=isAdm;off(gUnsub);if(prof)startGlobal();if(!isAdm&&page!=='vote'){off(aUnsub);aCode=null;page='vote'}}
       if(first&&prof)syncEmail();
       if(first&&prof){first=false;if(pendingRoom&&!vCode){history.replaceState(null,'',baseUrl());joinRoom(pendingRoom)}}
