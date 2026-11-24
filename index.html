@@ -206,8 +206,15 @@ function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">
 function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Wählerverzeichnis eingetragen. Wende dich an deinen Wahlleiter.</p><button class="ghost" id="logout">Abmelden</button></div>`}
 
 /* ---------- Wähler ---------- */
+let recentChecked='';
+async function checkRecent(list){ // „Zuletzt besucht“: gelöschte Räume entfernen
+  const key=list.join(',');if(key===recentChecked)return;checkRecent.busy=true;
+  const keep=[];for(const c of list){try{if((await D.getDoc(R(c))).exists())keep.push(c)}catch(e){keep.push(c)}}
+  ls.set('wa_rooms',keep);recentChecked=keep.join(',');checkRecent.busy=false;if(keep.length!==list.length)render();
+}
 function voterHomeView(){
   const recent=(ls.get('wa_rooms')||[]).filter(Boolean);
+  if(recent.length&&fs&&!checkRecent.busy)checkRecent(recent);
   return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir der Wahlleiter vor Ort nennt.</p>
   <form id="jf" class="row"><input id="jC" class="code" maxlength="8" autocomplete="off" placeholder="ABC-123" aria-label="Raum-Code"><button type="submit" class="red" ${busy?'disabled':''}>Beitreten</button></form>
   ${recent.length?`<p class="hint" style="margin:18px 0 6px">Zuletzt besucht</p><div class="row" style="gap:6px">${recent.map(c=>`<button class="ghost mini" data-join="${esc(c)}">${fmtCode(c)}</button>`).join('')}</div>`:''}</div>`;
@@ -294,7 +301,7 @@ function adminRoomView(){
   if(s.status==='published')ctrl=Bt('aPrint','Druck zu PDF','red',!aRes)+Bt('aArch','Im Archiv speichern','',!aRes);
   const link=`${baseUrl()}?r=${aCode}`;
   const codeBox=`<div class="sheet ballot"><div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Raum-Code</div><div class="c">${fmtCode(aCode)}</div>
-    <div class="row" style="margin-top:12px"><button class="ghost mini" id="aLink">Link kopieren</button><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div></div><div id="qr" aria-label="QR-Code zum Beitreten"></div></div></div>`;
+    <div class="row" style="margin-top:12px"><button class="ghost mini" id="aCopy">Code kopieren</button><button class="ghost mini" id="aLink">Link kopieren</button><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div></div><div id="qr" aria-label="QR-Code zum Beitreten"></div></div></div>`;
   const control=`<div class="sheet"><h2>Wahlsteuerung</h2>
     <div class="stats"><div><div class="big">${n}<span style="font-size:.45em;color:var(--mute)"> / ${ok.length}</span></div><div class="hint" style="margin:0">Stimmzettel / im Raum</div></div><div class="hint" style="margin:0;max-width:330px">${s.status==='published'?'Das Ergebnis ist für alle im Raum sichtbar.':'Das Ergebnis bleibt verborgen – auch hier –, bis du es nach dem Beenden veröffentlichst.'}</div></div>
     <div class="ctrl">${ctrl}</div>
@@ -497,7 +504,7 @@ async function joinRoom(code){
   busy=true;render();
   try{
     const r=await D.getDoc(R(code));
-    if(!r.exists()){toast('Raum nicht gefunden – Code prüfen');busy=false;render();return}
+    if(!r.exists()){ls.set('wa_rooms',(ls.get('wa_rooms')||[]).filter(c=>c!==code));toast('Raum nicht gefunden – Code prüfen');busy=false;render();return}
     const m=await D.getDoc(R(code,'members',me.uid));
     if(!m.exists()){
       const s=r.data();
@@ -639,6 +646,7 @@ document.addEventListener('click',async e=>{
     case 'newRoom':createRoom();break;
     case 'aBack':closeAdminRoom();break;
     case 'aLink':copy(`${baseUrl()}?r=${aCode}`);break;
+    case 'aCopy':copy(fmtCode(aCode));break;
     case 'aAdd':draft.cands.push({id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:'',info:''});render();setTimeout(()=>{const l=document.querySelectorAll('[data-n]');l[l.length-1]?.focus()});break;
     case 'aSave':{const c=draft.cands.map(x=>({id:x.id,name:x.name.trim(),info:(x.info||'').trim()})).filter(x=>x.name);
       if(!c.length){toast('Mindestens eine Option eintragen');return}
