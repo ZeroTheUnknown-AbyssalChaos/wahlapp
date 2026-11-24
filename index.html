@@ -566,7 +566,8 @@ function staffView(){
   <button type="submit" ${busy?'disabled':''}>Anlegen</button></form></div>
   <div class="sheet"><h2>Alle Konten (${list.length})</h2>
   ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><input class="cname" data-uname="${esc(u._id)}" value="${esc(u.name)}" maxlength="60" aria-label="Name" style="min-height:38px;padding:4px 8px;max-width:320px;font-weight:600"><div class="cinfo">Benutzer: <b>${esc(userOf(u))}</b> · ${esc(role(u))}</div>
-    <div class="row" style="gap:12px;margin-top:6px"><span class="hint" style="margin:0;font-size:14px">Mitglied in:</span>${gBoxes(`data-ugrp="${esc(u._id)}"`,u.groups||[])}</div></span>
+    <div class="row" style="gap:12px;margin-top:6px"><span class="hint" style="margin:0;font-size:14px">Mitglied in:</span>${gBoxes(`data-ugrp="${esc(u._id)}"`,u.groups||[])}</div>
+    ${groups.length?`<div class="row" style="gap:12px;margin-top:4px"><span class="hint" style="margin:0;font-size:14px">Wahlleiter in:</span>${groups.map(g=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" data-ulead="${esc(u._id)}" value="${esc(g._id)}" ${(g.leaders||[]).includes(u._id)?'checked':''}> ${esc(g.name)}</label>`).join('')}</div>`:''}</span>
   <span class="row" style="gap:6px">${realMail(u.email)?`<button class="ghost mini" data-pw="${esc(u.email)}">Passwort-Mail</button>`:''}${u._id!==me.uid?`<button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button>`:''}</span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
 }
 function groupsView(){
@@ -735,6 +736,12 @@ async function createStaff(f){
   const el=f.elements,grps=[...f.querySelectorAll('input[name=sG]:checked')].map(x=>x.value);
   busy=true;render();try{if(await createAccount(el.sN.value,el.sE.value,el.sM.value,el.sP.value,grps))f.reset()}catch(e){toast(err(e))}busy=false;render();
 }
+async function setLeader(gid,uid,on){ // nur Hauptwahlleiter: Gruppe, Konto und Räume der Gruppe gleichziehen
+  const g=grpOf(gid);if(!g)return;const set=new Set(g.leaders||[]);on?set.add(uid):set.delete(uid);const L=[...set];
+  await D.updateDoc(D.doc(fs,'groups',gid),{leaders:L});
+  const u=staff.find(x=>x._id===uid);if(u){const ls=new Set(u.leads||[]);on?ls.add(gid):ls.delete(gid);await D.updateDoc(D.doc(fs,'users',uid),{leads:[...ls]})}
+  const rs=myRooms.filter(r=>r.group===gid);for(let i=0;i<rs.length;i+=100){const b=D.writeBatch(fs);rs.slice(i,i+100).forEach(r=>b.update(R(r._id),{leaders:L}));await b.commit()}
+}
 async function setMembership(uid,gid,on){
   const u=staff.find(x=>x._id===uid);if(!u)return false;const set=new Set(u.groups||[]);on?set.add(gid):set.delete(gid);
   await D.updateDoc(D.doc(fs,'users',uid),{groups:[...set]});return true;
@@ -837,8 +844,8 @@ document.addEventListener('change',async e=>{const t=e.target;
   if(t.id==='myT'){try{await D.updateDoc(D.doc(fs,'users',me.uid),{theme:t.value||null});toast('Dein Design wurde geändert')}catch(x){toast(err(x))}return}
   if(t.dataset.ugrp){const u=staff.find(x=>x._id===t.dataset.ugrp);if(!u)return;const set=new Set(u.groups||[]);t.checked?set.add(t.value):set.delete(t.value);
     try{await D.updateDoc(D.doc(fs,'users',u._id),{groups:[...set]});toast('Gruppen geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
-  if(t.dataset.glead){const g=grpOf(t.dataset.glead);if(!g)return;const set=new Set(g.leaders||[]);t.checked?set.add(t.value):set.delete(t.value);const L=[...set];
-    try{await D.updateDoc(D.doc(fs,'groups',g._id),{leaders:L});const u=staff.find(x=>x._id===t.value);if(u){const ls=new Set(u.leads||[]);t.checked?ls.add(g._id):ls.delete(g._id);await D.updateDoc(D.doc(fs,'users',u._id),{leads:[...ls]})}const rs=myRooms.filter(r=>r.group===g._id);for(let i=0;i<rs.length;i+=100){const b=D.writeBatch(fs);rs.slice(i,i+100).forEach(r=>b.update(R(r._id),{leaders:L}));await b.commit()}toast('Wahlleiter geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
+  if(t.dataset.glead||t.dataset.ulead){const gid=t.dataset.glead||t.value,uid=t.dataset.glead?t.value:t.dataset.ulead;
+    try{await setLeader(gid,uid,t.checked);toast(t.checked?'Zum Wahlleiter ernannt':'Wahlleiter entfernt')}catch(x){t.checked=!t.checked;toast(err(x))}return}
   if(t.dataset.gtheme){try{await D.updateDoc(D.doc(fs,'groups',t.dataset.gtheme),{theme:t.value||null});toast('Design der Gruppe geändert')}catch(x){toast(err(x))}return}
   if(t.dataset.gname){const g=grpOf(t.dataset.gname),nm=t.value.trim().slice(0,40);if(!g||!nm||nm===g.name){if(g)t.value=g.name;return}try{await D.updateDoc(D.doc(fs,'groups',g._id),{name:nm});toast('Name geändert')}catch(x){t.value=g.name;toast(err(x))}return}
   if(t.dataset.candu&&draft){const u=staff.find(x=>x._id===t.dataset.candu);if(!u||!(u.groups||[]).includes(aRoom?.group))return;
