@@ -150,16 +150,29 @@ function applyTheme(t){
 try{applyTheme(JSON.parse(localStorage.getItem('wa_theme')))}catch(e){applyTheme(null)}
 function watchTheme(id){
   if(id===themeId)return;themeId=id;if(themeUnsub){themeUnsub();themeUnsub=null}
-  if(!id){curTheme=null;if(!tDraft)applyTheme(null);render();return}
+  if(!id){curTheme=null;if(!tDraft)applyTheme(null);return}
   themeUnsub=D.onSnapshot(D.doc(fs,'themes',id),s=>{curTheme=s.exists()?s.data():null;if(!tDraft)applyTheme(curTheme);render()},()=>{curTheme=null;if(!tDraft)applyTheme(null);render()});
 }
-const themeName=id=>!id?'Standard':themes.find(t=>t._id===id)?.name||'(eigenes Design)';
-const themeOpts=(sel)=>`<option value="">Standard</option>${themes.filter(t=>isSup||t.owner===me.uid).map(t=>`<option value="${esc(t._id)}" ${t._id===sel?'selected':''}>${esc(t.name)}</option>`).join('')}`;
+const themeName=id=>!id?'Standard':themes.find(t=>t._id===id)?.name||'(Design)';
+const themeOpts=(sel,ids)=>`<option value="">Standard</option>${themes.filter(t=>!ids||ids.includes(t._id)).map(t=>`<option value="${esc(t._id)}" ${t._id===sel?'selected':''}>${esc(t.name)}</option>`).join('')}`;
+/* ---------- Gruppen ---------- */
+let groups=[];
+const grpOf=id=>groups.find(g=>g._id===id);
+const myGroupIds=()=>prof?.groups||[];
+const leadGroups=()=>isSup?groups:groups.filter(g=>(g.leaders||[]).includes(me?.uid));
+const myThemeIds=()=>[...new Set(groups.filter(g=>myGroupIds().includes(g._id)||(g.leaders||[]).includes(me?.uid)).map(g=>g.theme).filter(Boolean))];
+function desiredTheme(){ // im Raum: Design der Gruppe; sonst eigenes (aus den eigenen Gruppen)
+  const room=page==='room'?aRoom:(page==='vote'&&vCode?vRoom:null);
+  if(room?.group){const g=grpOf(room.group);return g?.theme||null}
+  const mine=myThemeIds();
+  if(prof?.theme&&(isSup||mine.includes(prof.theme)))return prof.theme;
+  return mine[0]||null;
+}
 const swatch=t=>`<span class="sw" aria-hidden="true"><i style="background:${okHex(t.pri,'#18181b')}"></i><i style="background:${okHex(t.acc,'#c8201e')}"></i><i style="background:${okHex(t.bg,'#f3f1ea')}"></i></span>`;
 let me=null,prof=null,authReady=false,isSup=false,isAdm=false;
 let page='vote',busy=false,draft=null;
 // Wähler-Sicht
-let vCode=null,vRoom=null,vMember=null,vVote=null,vRes=null,vUnsub=[],vLoaded=false,vJoined=false;
+let vJoinCode=null,vCode=null,vRoom=null,vMember=null,vVote=null,vRes=null,vUnsub=[],vLoaded=false,vJoined=false;
 let pick=[],editing=false;
 // Admin-Sicht
 let myRooms=[],aCode=null,aRoom=null,aMembers=[],aVotes=[],aRes=null,aUnsub=[],staff=[],archive=[],gUnsub=[];
@@ -177,14 +190,15 @@ async function copy(t){try{await navigator.clipboard.writeText(t);toast('Kopiert
 
 /* ---------- Rendering ---------- */
 function render(){
+  if(authReady&&prof&&fs)watchTheme(desiredTheme());
   const room=page==='room'?aRoom:page==='vote'&&vCode?vRoom:null;
-  $('title').textContent=room?.title||(page==='rooms'?'Wahlen verwalten':page==='staff'?'Wähler':page==='themes'?'Designs':page==='archive'?'Archiv':appName);
+  $('title').textContent=room?.title||(page==='rooms'?'Wahlen verwalten':page==='staff'?'Wähler':page==='groups'?'Gruppen':page==='themes'?'Designs':page==='archive'?'Archiv':page==='account'?'Mein Konto':appName);
   $('chip').innerHTML=room?`<span class="chip s-${room.status}"><i></i>${LABEL[room.status]}</span>`:'';
   $('who').textContent=prof?`${appName} · ${prof.name} · ${isSup?'Hauptwahlleiter':isAdm?'Wahlleiter':'Wähler'}`:appName;
   const tabs=$('tabs');
   if(me&&prof){
     const T=(p,t)=>`<button data-page="${p}" aria-selected="${page===p||(p==='rooms'&&page==='room')}">${t}</button>`;
-    tabs.innerHTML=(isAdm?T('vote','Wählen')+T('rooms','Wahlen verwalten')+T('staff','Wähler')+T('themes','Designs')+T('archive','Archiv'):'')+`<button class="ghost out" id="logout">Abmelden</button>`;
+    tabs.innerHTML=(isAdm?T('vote','Wählen')+T('rooms','Wahlen verwalten')+T('staff','Wähler')+(isSup?T('groups','Gruppen')+T('themes','Designs'):'')+T('archive','Archiv'):'')+`<button class="ghost out" data-page="${page==='account'?'vote':'account'}" aria-selected="${page==='account'}">Konto</button><button class="ghost" id="logout">Abmelden</button>`;
     tabs.hidden=false;
   }else tabs.hidden=true;
   let h;
@@ -194,28 +208,44 @@ function render(){
   else if(page==='rooms'&&isAdm)h=roomsView();
   else if(page==='room'&&isAdm)h=adminRoomView();
   else if(page==='staff'&&isAdm)h=staffView();
-  else if(page==='themes'&&isAdm)h=themesView();
+  else if(page==='themes'&&isSup)h=themesView();
+  else if(page==='groups'&&isSup)h=groupsView();
   else if(page==='archive'&&isAdm)h=archiveView();
+  else if(page==='account')h=accountView();
   else h=vCode?voterRoomView():voterHomeView();
   $('main').innerHTML=h;
   if(isAdm&&(page==='archive'||(page==='room'&&aRes)))ensurePdf().catch(()=>{});
-  if(page==='room'&&aCode)drawQR();
+  if(page==='room'&&aCode){drawQR('qr',aCode);if(aRoom?.pubCode)drawQR('qr2',aRoom.pubCode)}
 }
 
-function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Wähler-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">E-Mail</label><input id="lE" type="email" autocomplete="username" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
+function loginView(){return`<div class="sheet"><h2>Anmelden</h2><p class="hint">Melde dich mit deinem Wähler-Konto an.</p><form id="lf"><div style="margin-bottom:12px"><label for="lE">Benutzername oder E-Mail</label><input id="lE" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div><div style="margin-bottom:16px"><label for="lP">Passwort</label><input id="lP" type="password" autocomplete="current-password" required></div><div class="row"><button type="submit" ${busy?'disabled':''}>Anmelden</button><button type="button" class="ghost" id="lForgot">Passwort vergessen?</button></div></form></div>`}
 function noAccessView(){return`<div class="sheet"><h2>Kein Zugang</h2><p class="hint">Dein Konto (${esc(me.email)}) ist nicht im Wählerverzeichnis eingetragen. Wende dich an deinen Wahlleiter.</p><button class="ghost" id="logout">Abmelden</button></div>`}
 
 /* ---------- Wähler ---------- */
 let recentChecked='';
 async function checkRecent(list){ // „Zuletzt besucht“: gelöschte Räume entfernen
   const key=list.join(',');if(key===recentChecked)return;checkRecent.busy=true;
-  const keep=[];for(const c of list){try{if((await D.getDoc(R(c))).exists())keep.push(c)}catch(e){keep.push(c)}}
+  const keep=[];for(const c of list){try{if((await D.getDoc(R(c))).exists())keep.push(c)}catch(e){if(e.code!=='permission-denied')keep.push(c)}}
   ls.set('wa_rooms',keep);recentChecked=keep.join(',');checkRecent.busy=false;if(keep.length!==list.length)render();
+}
+function accountView(){
+  const nameBox=`<div class="sheet"><h2>Mein Anzeigename</h2><p class="hint">So erscheinst du in Räumen und Teilnehmerlisten${isAdm?' und als Wahlleiter im Protokoll':''}. Dein Benutzername <b>${esc(userOf(prof)||me.email)}</b> bleibt fest und steht im Protokoll immer daneben.</p>
+  <form id="pf" class="row"><input id="pName" value="${esc(prof?.name||'')}" maxlength="60" required style="max-width:340px" aria-label="Mein Anzeigename"><button type="submit" ${busy?'disabled':''}>Name speichern</button></form></div>`;
+  const cur=realMail(me.email)?me.email:'';
+  const mailBox=`<div class="sheet"><h2>E-Mail-Adresse</h2><p class="hint">Für „Passwort vergessen?“. Angemeldet wird weiter mit dem Benutzernamen. ${cur?`Hinterlegt: <b>${esc(cur)}</b>`:'Noch keine E-Mail hinterlegt.'}</p>
+  <form id="emf"><div class="grid" style="max-width:780px"><div><label for="emNew">${cur?'Neue':'Deine'} E-Mail-Adresse</label><input id="emNew" type="email" autocomplete="email" required></div><div><label for="emPw">Aktuelles Passwort</label><input id="emPw" type="password" autocomplete="current-password" required></div></div>
+  <button type="submit" ${busy?'disabled':''}>Bestätigungslink senden</button><p class="hint" style="margin:10px 0 0">Die Adresse gilt erst, wenn du den Link in der Mail angeklickt hast. Danach meldest du dich einmal neu an.</p></form></div>`;
+  const tids=isSup?null:myThemeIds();
+  const designBox=(isSup||tids.length>1)?`<div class="sheet"><h2>Mein Design</h2><p class="hint">So sieht die App außerhalb von Wahlräumen für dich aus. In einem Wahlraum gilt immer das Design seiner Gruppe.</p><select id="myT" style="max-width:360px">${themeOpts(prof?.theme||'',tids)}</select></div>`:'';
+  return nameBox+designBox+mailBox+`<div class="sheet"><h2>Passwort ändern</h2><p class="hint">Angemeldet als <b>${esc(userOf(prof)||me.email||'')}</b>. Zur Sicherheit brauchst du dein aktuelles Passwort.</p>
+  <form id="cpf"><div style="margin-bottom:12px;max-width:380px"><label for="cpOld">Aktuelles Passwort</label><input id="cpOld" type="password" autocomplete="current-password" required></div>
+  <div class="grid" style="max-width:780px"><div><label for="cpNew">Neues Passwort (mind. 6 Zeichen)</label><input id="cpNew" type="password" autocomplete="new-password" minlength="6" required></div><div><label for="cpNew2">Neues Passwort wiederholen</label><input id="cpNew2" type="password" autocomplete="new-password" minlength="6" required></div></div>
+  <div class="row"><button type="submit" class="red" ${busy?'disabled':''}>Passwort ändern</button>${isAdm?'':`<button type="button" class="ghost" data-page="vote">Zurück</button>`}</div></form></div>`;
 }
 function voterHomeView(){
   const recent=(ls.get('wa_rooms')||[]).filter(Boolean);
   if(recent.length&&fs&&!checkRecent.busy)checkRecent(recent);
-  return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir der Wahlleiter vor Ort nennt.</p>
+  return`<div class="sheet ballot"><h2>An einer Wahl teilnehmen</h2><p class="hint">Gib den Raum-Code ein, den dir der Wahlleiter vor Ort nennt – den Gruppen-Code oder einen öffentlichen Code.</p>
   <form id="jf" class="row"><input id="jC" class="code" maxlength="8" autocomplete="off" placeholder="ABC-123" aria-label="Raum-Code"><button type="submit" class="red" ${busy?'disabled':''}>Beitreten</button></form>
   ${recent.length?`<p class="hint" style="margin:18px 0 6px">Zuletzt besucht</p><div class="row" style="gap:6px">${recent.map(c=>`<button class="ghost mini" data-join="${esc(c)}">${fmtCode(c)}</button>`).join('')}</div>`:''}</div>`;
 }
@@ -225,14 +255,24 @@ function voterRoomView(){
   const s=vRoom,back=`<div class="row" style="margin-top:4px"><button class="ghost mini" id="vLeave">← Anderer Raum</button><span class="hint" style="margin:0">Raum ${fmtCode(vCode)}</span></div>`;
   if(!vLoaded)return`<div class="sheet"><p class="hint">Raum wird geöffnet …</p></div>`;
   if(!s)return`<div class="sheet"><h2>Raum nicht gefunden</h2><p class="hint">Den Raum ${fmtCode(vCode)} gibt es nicht (mehr).</p>${back}</div>`;
-  if(!vMember)return`<div class="sheet"><h2>Nicht im Raum</h2><p class="hint">${vJoined?'Du bist nicht mehr in diesem Raum.':''} ${s.entryOpen&&!['ended','published'].includes(s.status)?'':'Der Einlass ist geschlossen.'}</p>${s.entryOpen&&!['ended','published'].includes(s.status)?`<button class="red" data-join="${vCode}">Beitreten</button>`:''}${back}</div>`;
+  if(!vMember)return`<div class="sheet"><h2>Nicht im Raum</h2><p class="hint">${vJoined?'Du bist nicht mehr in diesem Raum.':''} ${s.entryOpen&&!['ended','published'].includes(s.status)?'':'Der Einlass ist geschlossen.'}</p>${s.entryOpen&&!['ended','published'].includes(s.status)?`<button class="red" data-join="${esc(vJoinCode||vCode)}">Beitreten</button>`:''}${back}</div>`;
   if(!vMember.ok)return`<div class="sheet ballot"><h2>Warte auf Einlass</h2><p class="hint">Der Wahlleiter muss deinen Beitritt noch bestätigen. Diese Seite aktualisiert sich von selbst.</p>${back}</div>`;
   if(s.status==='published'&&vRes)return resultsView(vRes)+back;
-  const done=!!vVote&&!editing,live=s.status==='running'&&!done,canChange=s.allowChange===true&&s.status==='running';
+  const observer=!mayVote(s,vMember,me.uid);
+  if(false){
+    const why=vMember.elig===false?(vMember.via==='public'?'Du bist über den öffentlichen Code als Beobachter im Raum. Wenn du mitwählen darfst, setzt der Wahlleiter dich auf wahlberechtigt.':'Der Wahlleiter hat dich in diesem Raum als nicht wahlberechtigt eingetragen.'):'Du stehst selbst zur Wahl und darfst in dieser Wahl nicht mit abstimmen.';
+    return`<div class="sheet ballot"><h2>Nicht wahlberechtigt</h2><p class="hint">${why} Du bleibst als anwesend im Raum und siehst das Ergebnis, sobald es veröffentlicht ist.</p>${s.cands?.length?`<label>Zur Wahl steht</label><ul style="margin:0 0 0 1.2em;padding:0">${s.cands.map(c=>`<li>${esc(c.name)}</li>`).join('')}</ul>`:''}</div>${back}`;
+  }
+  const selfId='u_'+me.uid;
+  const done=!observer&&!!vVote&&!editing,live=!observer&&s.status==='running'&&!done,canChange=s.allowChange===true&&s.status==='running';
   let head='';
   if(s.status==='setup')head=`<p class="hint">Die Wahl hat noch nicht begonnen. Das steht zur Wahl:</p>`;
   if(s.status==='paused')head=`<div class="note">Die Wahl ist gerade pausiert.${done&&s.allowChange?' Ändern oder Zurückziehen ist wieder möglich, sobald sie fortgesetzt wird.':' Du kannst wählen, sobald sie fortgesetzt wird.'}</div>`;
   if(s.status==='ended'||s.status==='published')head=`<div class="note">Die Wahl ist beendet. Das Ergebnis wird vom Wahlleiter veröffentlicht.</div>`;
+  if(observer&&!['ended','published'].includes(s.status)){
+    const why=vMember.elig===false?(vMember.via==='public'?'Du bist über den öffentlichen Code als <b>Beobachter</b> im Raum.':'Der Wahlleiter hat dich in diesem Raum als <b>nicht wahlberechtigt</b> eingetragen.'):'Du stehst selbst zur Wahl und darfst in dieser Wahl <b>nicht mit abstimmen</b>.';
+    head=`<div class="note">${why} Dein Stimmzettel hat <b>0 Stimmen</b>. Du siehst, was zur Wahl steht, und das Ergebnis, sobald es veröffentlicht ist.</div>${s.status==='setup'?'<p class="hint">Die Wahl hat noch nicht begonnen.</p>':s.status==='paused'?'<p class="hint">Die Wahl ist gerade pausiert.</p>':''}`;
+  }
   if(live)head=`<p class="hint">${editing?'<b>Du änderst deine Stimme.</b> ':''}${modeText(s)} Tippe auf eine Option, um sie ${s.mode==='ranked'?'auf den nächsten Platz zu setzen':'anzukreuzen'}.</p>`;
   if(done){
     const list=vVote.choices.map((id,i)=>`<li>${s.mode==='ranked'?(i+1)+'. ':''}${esc(cname(s,id))}</li>`).join('');
@@ -240,10 +280,10 @@ function voterRoomView(){
     return`<div class="sheet ballot"><div class="stamp">Abgegeben</div><h2>Stimmzettel</h2><p class="hint">Deine Stimme ist gezählt. Danke! Das Ergebnis erscheint hier, sobald es veröffentlicht wird.</p>${head}<label>Deine Wahl</label><ul style="margin:0 0 0 1.2em;padding:0">${list}</ul>${s.allowChange?'':'<p class="hint" style="margin-top:12px">Die Stimme ist endgültig abgegeben.</p>'}${acts}</div>${back}`;
   }
   const body=s.cands?.length?`<ul class="cands">${s.cands.map(c=>{
-      const i=pick.indexOf(c.id),on=i>=0&&live,mark=on?(s.mode==='ranked'?i+1:'✕'):'';
-      return`<li class="cand ${on?'sel':''} ${live?'':'off'}" data-c="${esc(c.id)}" ${live?'role="button" tabindex="0"':''}><span class="box">${mark}</span><span><div class="cname">${esc(c.name)}</div>${c.info?`<div class="cinfo">${esc(c.info)}</div>`:''}</span></li>`}).join('')}</ul>`
+      const i=pick.indexOf(c.id),own=c.id===selfId,on=i>=0&&live,mark=own?'–':on?(s.mode==='ranked'?i+1:'✕'):'',act=live&&!own;
+      return`<li class="cand ${on?'sel':''} ${act?'':'off'}" data-c="${esc(c.id)}" ${act?'role="button" tabindex="0"':''} ${own?'style="opacity:.55"':''}><span class="box">${mark}</span><span><div class="cname">${esc(c.name)}${own?' (du selbst)':''}</div>${own?'<div class="cinfo">Dich selbst kannst du nicht wählen.</div>':c.info?`<div class="cinfo">${esc(c.info)}</div>`:''}</span></li>`}).join('')}</ul>`
     :`<p class="hint">Es stehen noch keine Optionen zur Wahl.</p>`;
-  const foot=live?`<div class="row" style="margin-top:18px;justify-content:space-between"><span class="hint" style="margin:0">${pick.length} von ${s.max} vergeben</span><div class="row">${editing?`<button class="ghost" id="vCancel">Abbrechen</button>`:pick.length?`<button class="ghost" id="clr">Zurücksetzen</button>`:''}<button class="red" id="cast" ${pick.length&&!busy?'':'disabled'}>${editing?'Änderung speichern':'Stimme abgeben'}</button></div></div>`:'';
+  const foot=observer&&s.status==='running'?`<p class="hint" style="margin:18px 0 0">0 von 0 Stimmen</p>`:live?`<div class="row" style="margin-top:18px;justify-content:space-between"><span class="hint" style="margin:0">${pick.length} von ${s.max} vergeben</span><div class="row">${editing?`<button class="ghost" id="vCancel">Abbrechen</button>`:pick.length?`<button class="ghost" id="clr">Zurücksetzen</button>`:''}<button class="red" id="cast" ${pick.length&&!busy?'':'disabled'}>${editing?'Änderung speichern':'Stimme abgeben'}</button></div></div>`:'';
   return`<div class="sheet ballot"><h2>Stimmzettel</h2>${head}${body}${foot}</div>${back}`;
 }
 
@@ -256,31 +296,41 @@ function resultsView(r){
 
 /* ---------- Admin: Raumliste ---------- */
 function roomsView(){
-  const mine=myRooms.filter(r=>isSup||r.owner===me.uid);
-  return`<div class="sheet"><h2>Neue Wahl eröffnen</h2><p class="hint">Es wird ein Raum mit eigenem Raum-Code angelegt. Du richtest die Wahl ein und gibst den Code vor Ort an die Anwesenden weiter.</p><button class="red" id="newRoom" ${busy?'disabled':''}>+ Neuen Wahlraum eröffnen</button></div>
-  <div class="sheet"><h2>${isSup?'Alle Wahlräume':'Meine Wahlräume'}</h2>${mine.length?`<div class="list">${mine.map(r=>`<div class="it"><span><div class="cname">${esc(r.title)} <span class="chip s-${r.status}" style="font-size:12px;padding:1px 8px;margin-left:4px">${LABEL[r.status]}</span></div><div class="cinfo">Raum ${fmtCode(r._id)} · eröffnet ${fmt(r.created)}${isSup&&r.owner!==me.uid?` · ${esc(r.ownerName||'')}`:''}</div></span><button class="ghost mini" data-open="${esc(r._id)}">Öffnen</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Wahlräume.</p>'}</div>`;
+  const lg=leadGroups(),mine=myRooms;
+  const create=lg.length?`<div class="row"><label for="nrG" style="margin:0">Gruppe</label><select id="nrG" style="width:auto">${lg.map(g=>`<option value="${esc(g._id)}">${esc(g.name)}</option>`).join('')}</select><button class="red" id="newRoom" ${busy?'disabled':''}>+ Neuen Wahlraum eröffnen</button></div>`
+    :`<p class="hint" style="margin:0">${isSup?'Lege zuerst unter „Gruppen“ eine Gruppe an.':'Du bist noch keiner Gruppe als Wahlleiter zugeordnet. Wende dich an den Hauptwahlleiter.'}</p>`;
+  return`<div class="sheet"><h2>Neue Wahl eröffnen</h2><p class="hint">Der Raum gehört zu einer Gruppe: Ihre Mitglieder treten mit dem Gruppen-Code bei, alle Wahlleiter der Gruppe können ihn leiten, und es gilt das Design der Gruppe.</p>${create}</div>
+  <div class="sheet"><h2>${isSup?'Alle Wahlräume':'Wahlräume meiner Gruppen'}</h2>${mine.length?`<div class="list">${mine.map(r=>`<div class="it"><span><div class="cname">${esc(r.title)} <span class="chip s-${r.status}" style="font-size:12px;padding:1px 8px;margin-left:4px">${LABEL[r.status]}</span></div><div class="cinfo">${esc(grpOf(r.group)?.name||'ohne Gruppe')} · Raum ${fmtCode(r._id)} · verantwortlich: ${esc(r.owner===me.uid?'ich':r.ownerName||'–')} · ${fmt(r.created)}</div></span><button class="ghost mini" data-open="${esc(r._id)}">Öffnen</button></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Wahlräume.</p>'}</div>`;
 }
 
 /* ---------- Admin: ein Raum ---------- */
 const voterIds=()=>new Set(aVotes.map(v=>v._id));
+const candUidsOf=s=>(s?.cands||[]).filter(c=>c.uid).map(c=>c.uid);
+// darf diese Person (Mitglied im Raum) in diesem Raum abstimmen?
+const mayVote=(s,m,uid)=>!!m&&m.ok&&m.elig!==false&&!(s?.kind==='person'&&s?.candRule==='none'&&candUidsOf(s).includes(uid));
+const aprG=s=>s?.approvalGroup===true||(s?.approvalGroup===undefined&&s?.approval===true);
 function participants(){const ids=voterIds();return aMembers.filter(m=>ids.has(m._id)).map(m=>m.name||'?').sort((a,b)=>a.localeCompare(b,'de'))}
 function tally(){
   const s=aRoom,ids=new Set(s.cands.map(c=>c.id)),t={};
   s.cands.forEach(c=>t[c.id]={id:c.id,name:c.name,votes:0,points:0,first:0});
   let n=0;
+  const mem=Object.fromEntries(aMembers.map(m=>[m._id,m]));
   aVotes.filter(v=>Array.isArray(v.choices)).forEach(v=>{
-    const ch=[...new Set(v.choices)].filter(x=>ids.has(x)).slice(0,s.max);if(!ch.length)return;n++;
+    if(mem[v._id]&&!mayVote(s,mem[v._id],v._id))return; // nicht (mehr) wahlberechtigt
+    const ch=[...new Set(v.choices)].filter(x=>ids.has(x)&&x!=='u_'+v._id).slice(0,s.max);if(!ch.length)return;n++;
     ch.forEach((id,i)=>{t[id].votes++;t[id].points+=s.mode==='ranked'?s.max-i:1;if(i===0)t[id].first++});
   });
   const rows=Object.values(t).sort((a,b)=>b.points-a.points||b.first-a.first||a.name.localeCompare(b.name));
-  return{roomId:aCode,title:s.title,owner:s.owner,ownerName:ownerNameOf(s.owner,s.ownerName||''),mode:s.mode,max:s.max,allowChange:s.allowChange===true,approval:s.approval===true,
+  return{roomId:aCode,title:s.title,owner:s.owner,ownerName:ownerNameOf(s.owner,s.ownerName||''),mode:s.mode,max:s.max,allowChange:s.allowChange===true,kind:s.kind||'option',candRule:s.candRule||'noself',approvalGroup:aprG(s),approvalPublic:s.approvalPublic===true,pub:!!s.pubCode,groupName:grpOf(s.group)?.name||'',
     present:aMembers.filter(m=>m.ok).length,times:{...(s.times||{}),published:Date.now()},ballots:n,rows,publishedAt:Date.now()};
 }
 // Teilnehmerliste: wer im Raum war und ob abgestimmt wurde – nie, was jemand gewählt hat
 function attendees(){
   const ids=voterIds(),own=aRoom?.owner;
-  const l=aMembers.filter(m=>m.ok).map(m=>({name:m.name||'?',voted:ids.has(m._id),lead:m._id===own}));
-  if(!l.some(a=>a.lead))l.push({name:ownerNameOf(own,aRoom?.ownerName||''),voted:false,lead:true,onlyLead:true});
+  const uOf=id=>id===me?.uid?userOf(prof):userOf(staff.find(u=>u._id===id));
+  const cu=candUidsOf(aRoom);
+  const l=aMembers.filter(m=>m.ok).map(m=>({name:m.name||'?',user:m.user||uOf(m._id)||'',voted:ids.has(m._id)&&mayVote(aRoom,m,m._id),lead:m._id===own,ext:m.via==='public',cand:cu.includes(m._id),elig:mayVote(aRoom,m,m._id)}));
+  if(!l.some(a=>a.lead))l.push({name:ownerNameOf(own,aRoom?.ownerName||''),user:uOf(own)||'',voted:false,lead:true,onlyLead:true});
   return l.sort((a,b)=>(b.lead-a.lead)||a.name.localeCompare(b.name,'de'));
 }
 const ownerNameOf=(uid,fb)=>uid&&me&&uid===me.uid?prof?.name||fb:staff.find(u=>u._id===uid)?.name||fb;
@@ -289,9 +339,11 @@ const protoData=()=>({...aRes,owner:aRoom?.owner||aRes.owner,ownerName:ownerName
 function adminRoomView(){
   const s=aRoom;
   if(!s)return`<div class="sheet"><p class="hint">Raum wird geladen …</p><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div>`;
-  const d=draft||(draft=JSON.parse(JSON.stringify({title:s.title,mode:s.mode,max:s.max,cands:s.cands,allowChange:s.allowChange===true,approval:s.approval===true})));
+  const d=draft||(draft=JSON.parse(JSON.stringify({title:s.title,mode:s.mode,max:s.max,cands:s.cands,allowChange:s.allowChange===true,kind:s.kind||'option',candRule:s.candRule||'noself'})));
+  const g=grpOf(s.group);
   const setup=s.status==='setup',closed=['ended','published'].includes(s.status);
   const ok=aMembers.filter(m=>m.ok),wait=aMembers.filter(m=>!m.ok),n=aVotes.length;
+  const vids=voterIds(),eligNow=ok.filter(m=>mayVote(s,m,m._id)).length,cu=candUidsOf(s);
   const Bt=(id,txt,cls='',dis=false)=>`<button id="${id}" class="${cls}" ${dis||busy?'disabled':''}>${txt}</button>`;
   let ctrl='';
   if(setup)ctrl=Bt('aStart','Wahl starten','red',!s.cands.length);
@@ -300,47 +352,66 @@ function adminRoomView(){
   if(s.status==='ended')ctrl=Bt('aPub','Ergebnis veröffentlichen','red');
   if(s.status==='published')ctrl=Bt('aPrint','Druck zu PDF','red',!aRes)+Bt('aArch','Im Archiv speichern','',!aRes);
   const link=`${baseUrl()}?r=${aCode}`;
-  const codeBox=`<div class="sheet ballot"><div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Raum-Code</div><div class="c">${fmtCode(aCode)}</div>
-    <div class="row" style="margin-top:12px"><button class="ghost mini" id="aCopy">Code kopieren</button><button class="ghost mini" id="aLink">Link kopieren</button><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div></div><div id="qr" aria-label="QR-Code zum Beitreten"></div></div></div>`;
+  const codeBox=`<div class="sheet ballot"><div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="hint" style="margin:0">Gruppe: <b>${esc(g?.name||'ohne Gruppe')}</b></span><button class="ghost mini" id="aBack">← Alle Wahlräume</button></div>
+    <div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Gruppen-Code – für Mitglieder von ${esc(g?.name||'der Gruppe')}</div><div class="c">${fmtCode(aCode)}</div>
+    <div class="row" style="margin-top:12px"><button class="ghost mini" data-cc="${aCode}">Code kopieren</button><button class="ghost mini" data-cl="${aCode}">Link kopieren</button></div></div><div id="qr" aria-label="QR-Code Gruppen-Code"></div></div>
+    <div style="border-top:1px dashed var(--line);margin-top:18px;padding-top:16px">${s.pubCode?`<div class="roomcode"><div><div class="hint" style="margin:0 0 4px">Öffentlicher Code – für angemeldete Nutzer außerhalb der Gruppe</div><div class="c" style="font-size:clamp(30px,8vw,46px)">${fmtCode(s.pubCode)}</div>
+      <div class="row" style="margin-top:12px"><button class="ghost mini" data-cc="${s.pubCode}">Code kopieren</button><button class="ghost mini" data-cl="${s.pubCode}">Link kopieren</button><button class="ghost mini" id="pubOff" ${closed||busy?'disabled':''}>Öffentlichen Code abschalten</button></div></div><div id="qr2" aria-label="QR-Code öffentlicher Code"></div></div>`
+      :`<div class="row"><span class="hint" style="margin:0">Kein öffentlicher Code aktiv – nur Gruppenmitglieder können beitreten.</span><button class="ghost mini" id="pubOn" ${closed||busy?'disabled':''}>Öffentlichen Code erstellen</button></div>`}</div></div>`;
   const control=`<div class="sheet"><h2>Wahlsteuerung</h2>
-    <div class="stats"><div><div class="big">${n}<span style="font-size:.45em;color:var(--mute)"> / ${ok.length}</span></div><div class="hint" style="margin:0">Stimmzettel / im Raum</div></div><div class="hint" style="margin:0;max-width:330px">${s.status==='published'?'Das Ergebnis ist für alle im Raum sichtbar.':'Das Ergebnis bleibt verborgen – auch hier –, bis du es nach dem Beenden veröffentlichst.'}</div></div>
+    <div class="stats"><div><div class="big">${n}<span style="font-size:.45em;color:var(--mute)"> / ${eligNow}</span></div><div class="hint" style="margin:0">Stimmzettel / wahlberechtigt · ${ok.length+(ok.some(m=>m._id===s.owner)?0:1)} anwesend</div></div><div class="hint" style="margin:0;max-width:330px">${s.status==='published'?'Das Ergebnis ist für alle im Raum sichtbar.':'Das Ergebnis bleibt verborgen – auch hier –, bis du es nach dem Beenden veröffentlichst.'}</div></div>
     <div class="ctrl">${ctrl}</div>
-    <p class="hint" style="margin:12px 0 0">Ändern/Zurückziehen: <b>${s.allowChange?'erlaubt':'nicht erlaubt'}</b> · Beitritt: <b>${s.approval?'mit Bestätigung':'direkt'}</b></p>
+    <p class="hint" style="margin:12px 0 0">Ändern/Zurückziehen: <b>${s.allowChange?'erlaubt':'nicht erlaubt'}</b> · Gruppen-Code: <b>${aprG(s)?'mit Bestätigung':'direkt'}</b> · Öffentlicher Code: <b>${s.pubCode?(s.approvalPublic?'mit Bestätigung':'direkt'):'aus'}</b></p>
     ${setup&&!s.cands.length?`<p class="hint" style="margin-top:10px">Füge unten Wahloptionen hinzu und speichere, dann kannst du starten.</p>`:''}
   </div>`;
   const entry=`<div class="sheet"><h2>Einlass</h2>
-    <label class="switch"><input type="checkbox" id="eOpen" ${s.entryOpen?'checked':''} ${closed||busy?'disabled':''}> Einlass offen – neue Personen können mit dem Code beitreten</label>
-    <p class="hint">Schließe den Einlass, sobald alle Anwesenden im Raum sind. So kann ein weitergegebener Code nicht mehr benutzt werden.</p>
-    ${wait.length?`<label>Warten auf Bestätigung (${wait.length})</label><div class="list" style="margin-bottom:12px">${wait.map(m=>`<div class="it"><span class="cname">${esc(m.name)}</span><span class="row" style="gap:6px"><button class="mini" data-ok="${esc(m._id)}">Einlassen</button><button class="ghost mini" data-kick="${esc(m._id)}">Ablehnen</button></span></div>`).join('')}</div>`:''}
-    <label>Im Raum (${ok.length})</label>${ok.length?`<div class="row" style="gap:6px">${ok.sort((a,b)=>a.name.localeCompare(b.name,'de')).map(m=>`<span class="chip plain">${voterIds().has(m._id)?'✓ ':''}${esc(m.name)}</span>`).join('')}</div><p class="hint" style="margin:8px 0 0;font-size:13px">✓ = hat abgestimmt (nicht, was).</p>`:'<p class="hint" style="margin:0">Noch niemand beigetreten.</p>'}
+    <label class="switch"><input type="checkbox" id="eOpen" ${s.entryOpen?'checked':''} ${closed||busy?'disabled':''}> Einlass offen – neue Personen können mit einem Code beitreten</label>
+    <label class="switch"><input type="checkbox" id="aprG" ${aprG(s)?'checked':''} ${closed||busy?'disabled':''}> Beitritt mit Gruppen-Code muss ich bestätigen</label>
+    <label class="switch"><input type="checkbox" id="aprP" ${s.approvalPublic?'checked':''} ${closed||busy||!s.pubCode?'disabled':''}> Beitritt mit öffentlichem Code muss ich bestätigen</label>
+    <p class="hint">Schließe den Einlass, sobald alle Anwesenden im Raum sind. So kann ein weitergegebener Code nicht mehr benutzt werden. Bestätigungen gelten für neue Beitritte.</p>
+    ${wait.length?`<label>Warten auf Bestätigung (${wait.length})</label><div class="list" style="margin-bottom:12px">${wait.map(m=>`<div class="it"><span><span class="cname">${esc(m.name)}</span> <span class="cinfo">${esc(m.user||'')}${m.via==='public'?' · öffentlicher Code':' · Gruppe'}</span></span><span class="row" style="gap:6px"><button class="mini" data-ok="${esc(m._id)}">Einlassen</button><button class="ghost mini" data-kick="${esc(m._id)}">Ablehnen</button></span></div>`).join('')}</div>`:''}
+    <label>Im Raum (${ok.length})</label>${ok.length?`<div class="list">${ok.sort((a,b)=>a.name.localeCompare(b.name,'de')).map(m=>`<div class="it"><span><span class="cname">${vids.has(m._id)?'✓ ':''}${esc(m.name)}</span> <span class="cinfo">${esc(m.user&&m.user!==m.name?m.user:'')}${m.via==='public'?(m.elig===false?' · extern, beobachtet':' · extern'):''}${m._id===s.owner?' · Wahlleiter':''}${cu.includes(m._id)?' · steht zur Wahl':''}</span></span>
+      <label class="switch" style="margin:0;font-weight:400;font-size:14px"><input type="checkbox" data-elig="${esc(m._id)}" ${m.elig!==false?'checked':''} ${closed||busy?'disabled':''}> wahlberechtigt</label></div>`).join('')}</div><p class="hint" style="margin:8px 0 0;font-size:13px">✓ = hat abgestimmt (nicht, was). Wer nicht wahlberechtigt ist, zählt als anwesend, aber nicht bei Beteiligung und Enthaltungen – seine Stimme zählt auch nicht. Das gilt für alle, auch für Wahlleiter, die im Raum mitgelistet sind. Externe (öffentlicher Code) sind zunächst nur Beobachter – setz den Haken, wenn sie mitwählen dürfen.</p>`:'<p class="hint" style="margin:0">Noch niemand beigetreten.</p>'}
   </div>`;
   const res=s.status==='published'&&aRes?resultsView(aRes):'';
   const dis=setup?'':'disabled';
   const cfg=`<div class="sheet"><h2>Wahl einrichten</h2>${setup?'':`<div class="note">Einstellungen und Wahloptionen sind gesperrt, sobald die Wahl gestartet wurde.</div>`}
     <div style="margin-bottom:16px"><label for="fTitle">Titel</label><input id="fTitle" value="${esc(d.title)}" ${dis} maxlength="80"></div>
+    <div style="margin-bottom:16px"><label>Art der Wahl</label><div class="seg" style="max-width:420px"><button data-kind="person" aria-pressed="${d.kind==='person'}" ${dis}>Personenwahl</button><button data-kind="option" aria-pressed="${d.kind!=='person'}" ${dis}>Sachwahl (Optionen)</button></div></div>
     <div class="grid"><div><label>Wahlart</label><div class="seg"><button data-mode="free" aria-pressed="${d.mode==='free'}" ${dis}>Allgemein</button><button data-mode="ranked" aria-pressed="${d.mode==='ranked'}" ${dis}>Reihenfolge</button></div></div>
     <div><label for="fMax">${d.mode==='ranked'?'Plätze pro Stimmzettel':'Stimmen pro Person (bis zu)'}</label><input id="fMax" type="number" min="1" value="${d.max}" ${dis}></div></div>
     <p class="hint">${d.mode==='ranked'?'Wähler/innen sortieren ihre Favoriten. Platz 1 bringt so viele Punkte wie Plätze vergeben werden, jeder weitere einen weniger.':'Jede Person kreuzt bis zur festgelegten Zahl an; jedes Kreuz zählt eine Stimme.'}</p>
-    <label class="switch"><input type="checkbox" id="fChange" ${d.allowChange?'checked':''} ${dis}> Stimme ändern/zurückziehen erlauben (nur solange die Wahl läuft)</label>
-    <label class="switch" style="margin-bottom:16px"><input type="checkbox" id="fApprove" ${d.approval?'checked':''} ${dis}> Beitritt nur nach Bestätigung durch mich</label>
-    <label>Wahloptionen</label>
-    ${d.cands.map((c,i)=>`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Option (Person oder Sache)" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="Info (optional)" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join('')||'<p class="hint">Noch niemand eingetragen.</p>'}
-    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Option hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}
+    <label class="switch" style="margin-bottom:16px"><input type="checkbox" id="fChange" ${d.allowChange?'checked':''} ${dis}> Stimme ändern/zurückziehen erlauben (nur solange die Wahl läuft)</label>
+    ${d.kind==='person'?`
+    <label>Zur Wahl stehende Anwesende dürfen</label>
+    <div class="seg" style="max-width:420px;margin-bottom:16px"><button data-crule="noself" aria-pressed="${d.candRule!=='none'}" ${dis}>nur sich selbst nicht wählen</button><button data-crule="none" aria-pressed="${d.candRule==='none'}" ${dis}>gar nicht wählen</button></div>
+    <label>Kandidaten aus der Gruppe ${esc(g?.name||'')}</label>
+    ${(()=>{const inRoom=new Set(ok.map(m=>m._id)),gm=staff.filter(u=>(u.groups||[]).includes(s.group)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+      return gm.length?`<div class="row" style="gap:14px;margin-bottom:10px">${gm.map(u=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" data-candu="${esc(u._id)}" ${d.cands.some(c=>c.uid===u._id)?'checked':''} ${dis}> ${esc(u.name)}${inRoom.has(u._id)?' <small style="opacity:.65">· anwesend</small>':''}</label>`).join('')}</div><p class="hint" style="margin:0 0 10px;font-size:13px">Zur Wahl stellen kannst du alle Mitglieder der Gruppe – auch wer nicht da ist. Externe (öffentlicher Code) nicht.</p>`:'<p class="hint">Diese Gruppe hat noch keine Mitglieder.</p>'})()}
+    <label>Personen ohne Konto</label>
+    ${d.cands.some(c=>!c.uid)?d.cands.map((c,i)=>c.uid?'':`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Name" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="z. B. Konto noch nicht im System" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join(''):'<p class="hint" style="margin:0 0 6px;font-size:13px">Für Gruppenmitglieder, deren Konto noch nicht im System ist.</p>'}
+    <p class="hint" style="margin:6px 0 0">Zur Wahl stehen: ${d.cands.length?d.cands.map(c=>esc(c.name||'?')).join(', '):'noch niemand'}</p>
+    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Person ohne Konto</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}`
+    :`<label>Wahloptionen</label>
+    ${d.cands.map((c,i)=>`<div class="edit"><input data-n="${i}" value="${esc(c.name)}" placeholder="Option" ${dis} maxlength="60"><input class="info" data-i="${i}" value="${esc(c.info||'')}" placeholder="Info (optional)" ${dis} maxlength="80"><button class="ghost mini" data-del="${i}" ${dis}>Entfernen</button></div>`).join('')||'<p class="hint">Noch keine Optionen eingetragen.</p>'}
+    ${setup?`<div class="row" style="margin-top:12px;justify-content:space-between"><button class="ghost" id="aAdd">+ Option hinzufügen</button><button id="aSave" ${busy?'disabled':''}>Speichern</button></div>`:''}`}
   </div>`;
   const danger=`<div class="sheet"><h2>Raum auflösen</h2><p class="hint">Löscht den Raum mit allen Stimmen, Teilnehmenden und dem Ergebnis endgültig. Gespeicherte Protokolle im Archiv bleiben erhalten.</p><button class="ghost" id="aDelRoom" ${busy?'disabled':''}>Raum endgültig löschen</button></div>`;
-  const takeover=isSup?`<div class="sheet"${s.owner!==me.uid?' style="border-left:6px solid var(--red)"':''}><h2>Wahlleiter des Raums</h2>
-    <p class="hint">${s.owner===me.uid?'Du leitest diesen Raum selbst.':`Dieser Raum gehört <b>${esc(s.ownerName||nameOf(s.owner))}</b>. Als Hauptwahlleiter kannst du ihn trotzdem vollständig steuern – oder ihn übernehmen bzw. an einen anderen Wahlleiter übergeben.`}</p>
-    <div class="row"><select id="oSel" style="width:auto">${admins().map(a=>`<option value="${esc(a._id)}" ${a._id===s.owner?'selected':''}>${esc(a.name)}${a._id===me.uid?' (ich)':''}</option>`).join('')}</select><button class="ghost" id="oSet" ${busy?'disabled':''}>Übergeben</button>${s.owner!==me.uid?`<button class="red" id="oMe" ${busy?'disabled':''}>Selbst übernehmen</button>`:''}</div></div>`:'';
+  const leaderIds=[...new Set([...(s.leaders||[]),...(isSup?[me.uid]:[])])];
+  const opts=leaderIds.map(id=>`<option value="${esc(id)}" ${id===s.owner?'selected':''}>${esc(id===me.uid?prof.name+' (ich)':nameOf(id))}</option>`).join('');
+  const takeover=`<div class="sheet"${s.owner!==me.uid?' style="border-left:6px solid var(--red)"':''}><h2>Verantwortlicher Wahlleiter</h2>
+    <p class="hint">${s.owner===me.uid?'Du bist für diesen Raum verantwortlich und stehst so im Protokoll.':`Verantwortlich ist <b>${esc(s.ownerName||nameOf(s.owner))}</b>. Als ${isSup?'Hauptwahlleiter':'Wahlleiter der Gruppe'} kannst du den Raum trotzdem vollständig steuern – oder die Verantwortung übernehmen.`} Alle Wahlleiter der Gruppe können den Raum leiten.</p>
+    <div class="row">${s.owner!==me.uid?`<button class="red" id="oMe" ${busy?'disabled':''}>Verantwortung übernehmen</button>`:''}${isSup&&leaderIds.length>1?`<select id="oSel" style="width:auto">${opts}</select><button class="ghost" id="oSet" ${busy?'disabled':''}>Übergeben</button>`:''}</div></div>`;
   return codeBox+takeover+res+control+entry+cfg+danger;
 }
 
 let qrLib=null;
-function drawQR(){
-  const el=$('qr');if(!el)return;
-  const go=()=>{try{el.innerHTML='';new window.QRCode(el,{text:`${baseUrl()}?r=${aCode}`,width:140,height:140,correctLevel:window.QRCode.CorrectLevel.M})}catch(e){el.remove()}};
+function drawQR(elId,code){
+  const el=$(elId);if(!el)return;
+  const go=()=>{try{el.innerHTML='';new window.QRCode(el,{text:`${baseUrl()}?r=${code}`,width:140,height:140,correctLevel:window.QRCode.CorrectLevel.M})}catch(e){el.remove()}};
   if(window.QRCode)return go();
   if(!qrLib){qrLib=new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)})}
-  qrLib.then(()=>{if($('qr'))go()}).catch(()=>$('qr')?.remove());
+  qrLib.then(()=>{if($(elId))go()}).catch(()=>$(elId)?.remove());
 }
 
 /* ---------- Protokoll ---------- */
@@ -348,10 +419,20 @@ function protoStats(r){
   let list;
   if(r.attendees)list=r.attendees;
   else list=[...(r.participants||[]).map(n=>({name:n,voted:true})),...(r.abstained||[]).map(n=>({name:n,voted:false}))].sort((a,b)=>a.name.localeCompare(b.name,'de'));
-  const voters=list.filter(a=>!a.onlyLead),present=list.length?voters.length:(r.present??null);
-  return{list,present,abst:voters.filter(a=>!a.voted).length,known:list.length>0,turnout:present?Math.round(r.ballots/present*100):null};
+  // anwesend: alle (auch ein nur leitender Wahlleiter); wahlberechtigt: allein nach dem Haken „wahlberechtigt“
+  const present=list.length?list.length:(r.present??null);
+  const eligible=list.filter(a=>!a.onlyLead&&a.elig!==false);
+  const elig=list.length?eligible.length:(r.present??null);
+  return{list,present,elig,abst:eligible.filter(a=>!a.voted).length,known:list.length>0,turnout:elig?Math.round(r.ballots/elig*100):null};
 }
-const roleOf=a=>a.onlyLead?'Wahlleiter':a.lead?'Wahlleiter, Wähler':'Wähler';
+const roleOf=a=>a.onlyLead?'Wahlleiter':[(a.lead?'Wahlleiter':''),(a.ext?'Gast (öffentl. Code)':'Wähler'),(a.cand?'steht zur Wahl':''),(a.elig===false?'nicht wahlberechtigt':'')].filter(Boolean).join(', ');
+const kindText=r=>r.kind==='person'?`Personenwahl${r.candRule==='none'?' (Kandidaten wählen nicht mit)':' (Kandidaten dürfen sich nicht selbst wählen)'}`:'Sachwahl (Optionen)';
+function stimmText(r){
+  if(r.groupName===undefined)return`Angemeldete Wähler mit Raum-Code${r.approval?', Beitritt durch den Wahlleiter bestätigt':''}`;
+  let t=`Mitglieder der Gruppe ${r.groupName||'–'} mit Gruppen-Code${r.approvalGroup?' (Beitritt bestätigt)':''}`;
+  if(r.pub)t+=`; Gäste mit öffentlichem Code${r.approvalPublic?' (Beitritt bestätigt)':''} als Beobachter, wahlberechtigt nur nach Freigabe durch den Wahlleiter`;
+  return t;
+}
 function protoHTML(r){
   const unit=r.mode==='ranked'?'Punkte':'Stimmen',T=r.times||{};let rank=0,prev=null;
   const rows=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}return`<tr><td class="n">${rank}.</td><td>${esc(x.name)}</td><td class="n">${x.points}</td>${r.mode==='ranked'?`<td class="n">${x.first}</td><td class="n">${x.votes}</td>`:''}</tr>`}).join('');
@@ -360,17 +441,19 @@ function protoHTML(r){
   <h2>Angaben zur Wahl</h2><table class="meta">
   <tr><td>Wahlleiter</td><td>${esc(r.ownerName||'–')}</td></tr>
   <tr><td>Wahlart</td><td>${r.mode==='ranked'?`Rangfolge, bis zu ${r.max} Plätze (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 Punkt weniger)`:`Allgemein, bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`}</td></tr>
-  <tr><td>Stimmberechtigung</td><td>Angemeldete Wähler mit Raum-Code${r.approval?', Beitritt durch den Wahlleiter bestätigt':''}</td></tr>
+  <tr><td>Stimmberechtigung</td><td>${esc(stimmText(r))}</td></tr>
   <tr><td>Ändern/Zurückziehen</td><td>${r.allowChange?'erlaubt während der Wahl':'nicht erlaubt'}</td></tr>
   <tr><td>Wahl gestartet</td><td>${fmt(T.running)}</td></tr>
   <tr><td>Wahl beendet</td><td>${fmt(T.ended)}</td></tr>
   <tr><td>Ergebnis veröffentlicht</td><td>${fmt(T.published||r.publishedAt)}</td></tr>
-  <tr><td>Im Raum anwesend</td><td>${P.present??'–'}</td></tr>
-  <tr><td>Abgegebene Stimmen</td><td>${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} %)`:''}</td></tr>
+  <tr><td>Art der Wahl</td><td>${kindText(r)}</td></tr>
+  <tr><td>Im Raum anwesend</td><td>${P.present??'–'} (inkl. Wahlleiter)</td></tr>
+  <tr><td>Davon wahlberechtigt</td><td>${P.elig??'–'}</td></tr>
+  <tr><td>Abgegebene Stimmen</td><td>${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} % der Wahlberechtigten)`:''}</td></tr>
   <tr><td>Enthaltungen</td><td>${P.known?P.abst:'–'}</td></tr>
   </table>
   <h2>Ergebnis</h2><table><tr><th>Platz</th><th>Option</th><th>${unit}</th>${r.mode==='ranked'?'<th>× Platz 1</th><th>auf Stimmzetteln</th>':''}</tr>${rows}</table>
-  ${P.list.length?`<h2>Teilnehmerliste (${P.list.length})</h2><table><tr><th>Nr.</th><th>Name</th><th>Rolle</th><th style="text-align:center">Abgestimmt</th></tr>${P.list.map((a,i)=>`<tr><td class="n">${i+1}</td><td>${esc(a.name)}</td><td>${roleOf(a)}</td><td style="text-align:center;font-size:13pt">${a.voted?'☒':'☐'}</td></tr>`).join('')}</table>`:''}
+  ${P.list.length?`<h2>Teilnehmerliste (${P.list.length})</h2><table><tr><th>Nr.</th><th>Anzeigename</th><th>Benutzername</th><th>Rolle</th><th style="text-align:center">Abgestimmt</th></tr>${P.list.map((a,i)=>`<tr><td class="n">${i+1}</td><td>${esc(a.name)}</td><td>${esc(a.user||'–')}</td><td>${roleOf(a)}</td><td style="text-align:center;font-size:13pt">${a.onlyLead||a.elig===false?'–':a.voted?'☒':'☐'}</td></tr>`).join('')}</table>`:''}
   <p style="font-size:9pt;color:#555">Das Protokoll enthält keine Angaben darüber, wer was gewählt hat.</p>
   <div class="sig"><div>Ort, Datum</div><div>Unterschrift Wahlleiter</div></div>
   <p style="font-size:9pt;color:#555;margin-top:18pt">Erstellt am ${fmt(Date.now())}</p>`;
@@ -392,19 +475,20 @@ function makePdf(r,J){
   let y=h2('Angaben zur Wahl',M+16);
   const meta=[['Wahlleiter',r.ownerName||'-'],
     ['Wahlart',r.mode==='ranked'?`Rangfolge, bis zu ${r.max} Plätze (Platz 1 = ${r.max} Punkte, jeder weitere Platz 1 Punkt weniger)`:`Allgemein, bis zu ${r.max} Stimme${r.max==1?'':'n'} pro Person`],
-    ['Stimmberechtigung',`Angemeldete Wähler mit Raum-Code${r.approval?', Beitritt durch den Wahlleiter bestätigt':''}`],
+    ['Stimmberechtigung',stimmText(r)],
     ['Ändern/Zurückziehen',r.allowChange?'erlaubt während der Wahl':'nicht erlaubt'],
     ['Wahl gestartet',fmt(TT.running)],['Wahl beendet',fmt(TT.ended)],['Ergebnis veröffentlicht',fmt(TT.published||r.publishedAt)],
-    ['Im Raum anwesend',String(P.present??'-')],['Abgegebene Stimmen',`${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} %)`:''}`],['Enthaltungen',P.known?String(P.abst):'-']].map(a=>a.map(T));
+    ['Art der Wahl',kindText(r)],['Im Raum anwesend',`${P.present??'-'} (inkl. Wahlleiter)`],['Davon wahlberechtigt',String(P.elig??'-')],['Abgegebene Stimmen',`${r.ballots}${P.turnout!=null?` (Beteiligung ${P.turnout} % der Wahlberechtigten)`:''}`],['Enthaltungen',P.known?String(P.abst):'-']].map(a=>a.map(T));
   y=tbl({startY:y,body:meta,columnStyles:{0:{cellWidth:58,fontStyle:'bold'}}});
   y=h2('Ergebnis',y+2);
   let rank=0,prev=null;const ranked=r.mode==='ranked';
   const body=r.rows.map((x,i)=>{if(x.points!==prev){rank=i+1;prev=x.points}return[rank+'.',T(x.name),String(x.points),...(ranked?[String(x.first),String(x.votes)]:[])]});
   y=tbl({startY:y,head:[['Platz','Option',ranked?'Punkte':'Stimmen',...(ranked?['× Platz 1','auf Stimmzetteln']:[])]],body,columnStyles:{0:{cellWidth:16,halign:'right'},2:{halign:'right',cellWidth:24},3:{halign:'right',cellWidth:24},4:{halign:'right',cellWidth:32}}});
   if(P.list.length){y=h2(`Teilnehmerliste (${P.list.length})`,y+2);
-    y=tbl({startY:y,head:[['Nr.','Name','Rolle','Abgestimmt']],body:P.list.map((a,i)=>[String(i+1),T(a.name),roleOf(a),'']),
-      columnStyles:{0:{cellWidth:16,halign:'right'},2:{cellWidth:44},3:{cellWidth:28,halign:'center'}},
-      didDrawCell:c=>{if(c.section!=='body'||c.column.index!==3)return;const a=P.list[c.row.index],s=4,x=c.cell.x+c.cell.width/2-s/2,yy=c.cell.y+c.cell.height/2-s/2;
+    y=tbl({startY:y,head:[['Nr.','Anzeigename','Benutzername','Rolle','Abgestimmt']],body:P.list.map((a,i)=>[String(i+1),T(a.name),T(a.user||'-'),roleOf(a),'']),
+      columnStyles:{0:{cellWidth:12,halign:'right'},2:{cellWidth:42},3:{cellWidth:34},4:{cellWidth:24,halign:'center'}},
+      didDrawCell:c=>{if(c.section!=='body'||c.column.index!==4)return;const a=P.list[c.row.index],s=4,x=c.cell.x+c.cell.width/2-s/2,yy=c.cell.y+c.cell.height/2-s/2;
+        if(a.onlyLead||a.elig===false){doc.setDrawColor(90);doc.setLineWidth(.4);doc.line(x+.5,yy+s/2,x+s-.5,yy+s/2);return}
         doc.setDrawColor(40);doc.setLineWidth(.3);doc.rect(x,yy,s,s);
         if(a.voted){doc.setLineWidth(.5);doc.line(x+.8,yy+2.1,x+1.7,yy+3.1);doc.line(x+1.7,yy+3.1,x+3.3,yy+.9)}}})}
   doc.setFont('helvetica','italic');doc.setFontSize(8.5);doc.text(T('Das Protokoll enthält keine Angaben darüber, wer was gewählt hat.'),M,y+5);y+=6;
@@ -442,38 +526,65 @@ function printProto(r){$('proto').innerHTML=protoHTML(r);setTimeout(()=>{try{win
 
 /* ---------- Wähler, Designs & Archiv ---------- */
 const admins=()=>staff.filter(u=>u._id===SUPER_UID||u.role==='admin');
+const LOGIN_DOMAIN='wahlapp.local'; // interne Domain für Konten ohne echte E-Mail
+const toLogin=v=>{v=String(v||'').trim().toLowerCase();return v.includes('@')?v:v+'@'+LOGIN_DOMAIN};
+const userOf=u=>u?.username||(u?.email?(u.email.endsWith('@'+LOGIN_DOMAIN)?u.email.split('@')[0]:u.email):'');
+async function syncEmail(){ // nach bestätigter E-Mail-Änderung: Profil und Zuordnungen nachziehen
+  const em=String(me?.email||'').toLowerCase(),un=userOf(prof);if(!em||!prof)return;
+  try{if(prof.email!==em)await D.updateDoc(D.doc(fs,'users',me.uid),{email:em})}catch(e){}
+  try{await D.setDoc(D.doc(fs,'accounts',em),{uid:me.uid,email:em})}catch(e){}
+  if(un&&!un.includes('@')){try{await D.setDoc(D.doc(fs,'logins',un),{uid:me.uid,email:em})}catch(e){}}
+}
+async function loginCandidates(raw){ // Benutzername → mögliche Login-Adressen (hinterlegte, gerade bestätigte, interne)
+  raw=String(raw||'').trim().toLowerCase();if(raw.includes('@'))return[raw];
+  const c=[];try{const m=await D.getDoc(D.doc(fs,'logins',raw));if(m.exists()){const d=m.data();if(d.email)c.push(d.email);if(d.pending)c.push(d.pending)}}catch(e){}
+  c.push(raw+'@'+LOGIN_DOMAIN);return[...new Set(c)];
+}
+const realMail=e=>!!e&&!String(e).endsWith('@'+LOGIN_DOMAIN);
 const nameOf=id=>staff.find(u=>u._id===id)?.name||(id===me?.uid?prof?.name:'')||'–';
+const role=u=>u._id===SUPER_UID?'Hauptwahlleiter':u.role==='admin'?'Wahlleiter':'Wähler';
 function staffView(){
-  const list=staff.filter(u=>u._id!==me.uid&&(isSup||u.manager===me.uid)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
-  const mgrSel=(id,sel)=>`<select ${id}>${admins().map(a=>`<option value="${esc(a._id)}" ${a._id===sel?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`;
-  const role=u=>u._id===SUPER_UID?'Hauptwahlleiter':u.role==='admin'?'Wahlleiter':'Wähler';
-  const mine=`<div class="sheet"><h2>Mein Profil</h2><p class="hint">Dieser Name steht als Wahlleiter im Protokoll und in der Raumliste.</p>
-  <form id="pf" class="row"><input id="pName" value="${esc(prof?.name||'')}" maxlength="60" required style="max-width:340px" aria-label="Mein Name"><button type="submit" ${busy?'disabled':''}>Name speichern</button></form></div>`;
-  return mine+`<div class="sheet"><h2>${isSup?'Wähler oder Wahlleiter anlegen':'Wähler anlegen'}</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.${isSup?'':' Deine Wähler bekommen dein Design, wenn du nichts anderes wählst.'}</p>
-  <form id="sf"><div class="grid"><div><label for="sN">Name</label><input id="sN" required maxlength="60"></div><div><label for="sE">E-Mail (dient als Anmeldename)</label><input id="sE" type="email" required></div>
+  if(!isSup){ // Wahlleiter: Mitglieder der eigenen Gruppen (nur ansehen)
+    const lg=leadGroups();
+    return`<div class="sheet"><h2>Wähler meiner Gruppen</h2><p class="hint">Mitglieder und Gruppen verwaltet der Hauptwahlleiter.</p>${lg.length?lg.map(g=>{const ms=staff.filter(u=>(u.groups||[]).includes(g._id)).sort((a,b)=>a.name.localeCompare(b.name,'de'));
+      return`<h2 style="font-size:17px;margin:16px 0 6px">${esc(g.name)} (${ms.length})</h2>${ms.length?`<div class="row" style="gap:6px">${ms.map(u=>`<span class="chip plain">${esc(u.name)} <small style="opacity:.65">(${esc(userOf(u))})</small></span>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Mitglieder.</p>'}`}).join(''):'<p class="hint" style="margin:0">Du bist noch keiner Gruppe als Wahlleiter zugeordnet.</p>'}</div>`;
+  }
+  const list=[...staff].sort((a,b)=>(a._id===me.uid?-1:b._id===me.uid?1:a.name.localeCompare(b.name,'de')));
+  const gBoxes=(name,sel)=>groups.length?groups.map(g=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" ${name} value="${esc(g._id)}" ${sel.includes(g._id)?'checked':''}> ${esc(g.name)}</label>`).join(''):'<span class="hint" style="margin:0">Noch keine Gruppen – lege sie unter „Gruppen“ an.</span>';
+  return`<div class="sheet"><h2>Wähler oder Wahlleiter anlegen</h2><p class="hint">Simuliert das Verzeichnis eurer Organisation: Nur hier eingetragene Konten können sich anmelden und wählen.</p>
+  <form id="sf"><div class="grid"><div><label for="sN">Anzeigename</label><input id="sN" required maxlength="60" placeholder="z. B. Max Mustermann"></div><div><label for="sE">Benutzername (fest, zum Anmelden) – oder E-Mail</label><input id="sE" type="text" required autocapitalize="none" spellcheck="false" placeholder="z. B. max.mustermann"></div>
   <div><label for="sP">Start-Passwort (mind. 6 Zeichen)</label><input id="sP" type="text" minlength="6" required autocomplete="off"></div>
-  <div><label for="sT">Design</label><select id="sT">${themeOpts(prof?.theme||'')}</select></div>
-  ${isSup?`<div><label for="sR">Rolle</label><select id="sR"><option value="voter">Wähler (wählen)</option><option value="admin">Wahlleiter (Wahlen eröffnen, eigene Wähler)</option></select></div><div><label for="sM">Zuständiger Wahlleiter</label>${mgrSel('id="sM"',me.uid)}</div>`:''}</div>
+  <div><label for="sR">Rolle</label><select id="sR"><option value="voter">Wähler</option><option value="admin">Wahlleiter (kann Gruppen leiten)</option></select></div></div>
+  <label>Gruppen (Mitglied)</label><div class="row" style="gap:14px;margin-bottom:14px">${gBoxes('name="sG"',[])}</div>
   <button type="submit" ${busy?'disabled':''}>Anlegen</button></form></div>
-  <div class="sheet"><h2>${isSup?'Alle Wähler und Wahlleiter':'Meine Wähler'} (${list.length})</h2>
-  ${list.length?`<div class="row" style="margin-bottom:12px"><label for="bulkT" style="margin:0">Allen ${isSup?'':'meinen '}Wählern Design geben:</label><select id="bulkT" style="width:auto">${themeOpts('')}</select><button class="ghost mini" id="bulkGo" ${busy?'disabled':''}>Zuweisen</button></div>`:''}
-  ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><div class="cname">${esc(u.name)}</div><div class="cinfo">${esc(u.email||'')} · ${role(u)}${isSup?` · bei ${esc(nameOf(u.manager||SUPER_UID))}`:''}</div>
-    <div class="row" style="gap:8px;margin-top:6px"><label style="margin:0" for="t_${esc(u._id)}">Design</label><select id="t_${esc(u._id)}" data-theme="${esc(u._id)}" style="width:auto;min-height:36px">${themeOpts(u.theme||'')}</select>${isSup&&u.role!=='admin'?`<label style="margin:0">Wahlleiter</label>${mgrSel(`data-mgr="${esc(u._id)}" style="width:auto;min-height:36px"`,u.manager||SUPER_UID)}`:''}</div></span>
-  <span class="row" style="gap:6px">${isSup?`<button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Wähler':'→ Wahlleiter'}</button>`:''}<button class="ghost mini" data-pw="${esc(u.email||'')}">Passwort-Mail</button><button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+  <div class="sheet"><h2>Alle Wähler und Wahlleiter (${list.length})</h2>
+  ${list.length?`<div class="list">${list.map(u=>`<div class="it"><span><input class="cname" data-uname="${esc(u._id)}" value="${esc(u.name)}" maxlength="60" aria-label="Name" style="min-height:38px;padding:4px 8px;max-width:320px;font-weight:600"><div class="cinfo">Benutzer: <b>${esc(userOf(u))}</b> · ${role(u)}${(u.role==='admin'||u._id===SUPER_UID)&&groups.some(g=>(g.leaders||[]).includes(u._id))?` · leitet: ${esc(groups.filter(g=>(g.leaders||[]).includes(u._id)).map(g=>g.name).join(', '))}`:''}</div>
+    <div class="row" style="gap:12px;margin-top:6px"><span class="hint" style="margin:0;font-size:14px">Mitglied in:</span>${gBoxes(`data-ugrp="${esc(u._id)}"`,u.groups||[])}</div></span>
+  <span class="row" style="gap:6px">${u._id!==me.uid?`<button class="ghost mini" data-role="${esc(u._id)}">${u.role==='admin'?'→ Wähler':'→ Wahlleiter'}</button>`:''}${realMail(u.email)?`<button class="ghost mini" data-pw="${esc(u.email)}">Passwort-Mail</button>`:''}${u._id!==me.uid?`<button class="ghost mini" data-rm="${esc(u._id)}">Entfernen</button>`:''}</span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch niemand eingetragen.</p>'}</div>`;
+}
+function groupsView(){
+  const ads=admins();
+  const leadBoxes=(attr,sel)=>ads.map(a=>`<label class="switch" style="margin:0;font-weight:400"><input type="checkbox" ${attr} value="${esc(a._id)}" ${sel.includes(a._id)?'checked':''}> ${esc(a._id===me.uid?a.name+' (ich)':a.name)}</label>`).join('');
+  return`<div class="sheet"><h2>Neue Gruppe</h2><p class="hint">Eine Gruppe hat genau ein Design und beliebig viele Wahlleiter. Ohne eingetragenen Wahlleiter leitest du sie als Hauptwahlleiter.</p>
+  <form id="gf"><div class="grid"><div><label for="gN">Name</label><input id="gN" required maxlength="40" placeholder="z. B. THW OV Musterstadt"></div><div><label for="gT">Design</label><select id="gT">${themeOpts('')}</select></div></div>
+  <label>Wahlleiter</label><div class="row" style="gap:14px;margin-bottom:14px">${leadBoxes('name="gL"',[])}</div>
+  <button type="submit" ${busy?'disabled':''}>Gruppe anlegen</button></form></div>
+  <div class="sheet"><h2>Gruppen (${groups.length})</h2>${groups.length?`<div class="list">${groups.map(g=>{const n=staff.filter(u=>(u.groups||[]).includes(g._id)).length;
+    return`<div class="it"><span><input class="cname" data-gname="${esc(g._id)}" value="${esc(g.name)}" maxlength="40" aria-label="Gruppenname" style="min-height:38px;padding:4px 8px;max-width:320px;font-weight:600"><div class="cinfo">${n} Mitglieder · Design: <select data-gtheme="${esc(g._id)}" style="width:auto;min-height:32px;padding:2px 8px;font-size:14px">${themeOpts(g.theme||'')}</select></div>
+    <div class="row" style="gap:12px;margin-top:6px"><span class="hint" style="margin:0;font-size:14px">Wahlleiter:</span>${leadBoxes(`data-glead="${esc(g._id)}"`,g.leaders||[])}${(g.leaders||[]).length?'':'<span class="hint" style="margin:0;font-size:13px">(keiner – du leitest)</span>'}</div></span>
+    <button class="ghost mini" data-gdel="${esc(g._id)}">Löschen</button></div>`}).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine Gruppen.</p>'}</div>`;
 }
 function themesView(){
-  const mine=themes.filter(t=>isSup||t.owner===me.uid),d=tDraft;
+  const mine=themes,d=tDraft;
   const editor=d?`<div class="sheet"><h2>${d._id?'Design bearbeiten':'Neues Design'}</h2>
     <div class="grid"><div><label for="tN">Name des Designs</label><input id="tN" value="${esc(d.name)}" maxlength="40"></div><div><label for="tA">App-Name (Titel oben)</label><input id="tA" value="${esc(d.app)}" maxlength="40"></div></div>
     <div class="row" style="gap:22px;margin-bottom:16px"><div><label for="tP">Hauptfarbe</label><input type="color" id="tP" value="${okHex(d.pri,'#18181b')}"></div><div><label for="tC">Akzent</label><input type="color" id="tC" value="${okHex(d.acc,'#c8201e')}"></div><div><label for="tB">Hintergrund</label><input type="color" id="tB" value="${okHex(d.bg,'#f3f1ea')}"></div></div>
     <p class="hint">Hauptfarbe: Kopfleiste und Buttons · Akzent: Stempel, Gewinner, Hinweise · Hintergrund: Seitenfarbe im hellen Modus. Die Vorschau gilt sofort, gespeichert wird erst mit „Speichern“.</p>
     <div class="row" style="justify-content:space-between"><button class="ghost" id="tCancel">Abbrechen</button><button class="red" id="tSave" ${busy?'disabled':''}>Speichern</button></div></div>`:'';
-  return`<div class="sheet"><h2>Mein Design</h2><p class="hint">So sieht die App für dich aus. Deinen Wählern weist du ein Design unter „Wähler“ zu.</p>
-  <select id="myT" style="max-width:360px">${themeOpts(prof?.theme||'')}</select></div>
-  ${editor}
-  <div class="sheet"><h2>${isSup?'Alle Designs':'Meine Designs'}</h2>
+  return`${editor}
+  <div class="sheet"><h2>Designs</h2><p class="hint">Jede Gruppe bekommt eins dieser Designs (unter „Gruppen“). Im Wahlraum gilt das Design seiner Gruppe.</p>
   <div class="row" style="gap:6px;margin-bottom:14px"><span class="hint" style="margin:0">Neu aus Vorlage:</span>${PRESETS.map(p=>`<button class="ghost mini" data-preset="${p.key}">${swatch(p)} ${esc(p.name)}</button>`).join('')}</div>
-  ${mine.length?`<div class="list">${mine.map(t=>`<div class="it"><span class="row" style="gap:12px;flex-wrap:nowrap">${swatch(t)}<span><div class="cname">${esc(t.name)}</div><div class="cinfo">${esc(t.app)} · ${staff.filter(u=>u.theme===t._id).length} Personen${isSup&&t.owner!==me.uid?` · von ${esc(nameOf(t.owner))}`:''}</div></span></span><span class="row" style="gap:6px"><button class="ghost mini" data-tedit="${esc(t._id)}">Bearbeiten</button><button class="ghost mini" data-tdel="${esc(t._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine eigenen Designs. Starte mit einer Vorlage.</p>'}</div>`;
+  ${mine.length?`<div class="list">${mine.map(t=>`<div class="it"><span class="row" style="gap:12px;flex-wrap:nowrap">${swatch(t)}<span><div class="cname">${esc(t.name)}</div><div class="cinfo">${esc(t.app)} · ${groups.filter(g=>g.theme===t._id).map(g=>esc(g.name)).join(', ')||'keiner Gruppe zugeordnet'}</div></span></span><span class="row" style="gap:6px"><button class="ghost mini" data-tedit="${esc(t._id)}">Bearbeiten</button><button class="ghost mini" data-tdel="${esc(t._id)}">Löschen</button></span></div>`).join('')}</div>`:'<p class="hint" style="margin:0">Noch keine eigenen Designs. Starte mit einer Vorlage.</p>'}</div>`;
 }
 function archiveView(){
   const list=archive.filter(a=>isSup||a.owner===me.uid);
@@ -484,12 +595,13 @@ function archiveView(){
 /* ---------- Daten-Abos ---------- */
 function startGlobal(){
   off(gUnsub);
+  gUnsub.push(D.onSnapshot(D.collection(fs,'groups'),q=>{groups=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
+  gUnsub.push(D.onSnapshot(D.collection(fs,'themes'),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
   if(isAdm){
-    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'rooms'):D.query(D.collection(fs,'rooms'),D.where('owner','==',me.uid)),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
+    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'rooms'):D.query(D.collection(fs,'rooms'),D.where('leaders','array-contains',me.uid)),q=>{myRooms=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.created||0)-(a.created||0));render()},()=>{}));
     gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'archive'):D.query(D.collection(fs,'archive'),D.where('owner','==',me.uid)),q=>{archive=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>(b.publishedAt||0)-(a.publishedAt||0));render()},()=>{}));
-    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'users'):D.query(D.collection(fs,'users'),D.where('manager','==',me.uid)),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();backfillAccounts()},()=>{}));
-    gUnsub.push(D.onSnapshot(isSup?D.collection(fs,'themes'):D.query(D.collection(fs,'themes'),D.where('owner','==',me.uid)),q=>{themes=q.docs.map(d=>({...d.data(),_id:d.id})).sort((a,b)=>a.name.localeCompare(b.name,'de'));render()},()=>{}));
-  }else{staff=[];themes=[];myRooms=[];archive=[]}
+    gUnsub.push(D.onSnapshot(D.collection(fs,'users'),q=>{staff=q.docs.map(d=>({...d.data(),_id:d.id}));render();if(isSup)backfillAccounts()},()=>{}));
+  }else{staff=[];myRooms=[];archive=[]}
 }
 function openAdminRoom(code){
   off(aUnsub);aCode=code;aRoom=null;aMembers=[];aVotes=[];aRes=null;draft=null;page='room';render();
@@ -503,16 +615,21 @@ async function joinRoom(code){
   code=norm(code);if(code.length<4){toast('Bitte den Raum-Code eingeben');return}
   busy=true;render();
   try{
-    const r=await D.getDoc(R(code));
-    if(!r.exists()){ls.set('wa_rooms',(ls.get('wa_rooms')||[]).filter(c=>c!==code));toast('Raum nicht gefunden – Code prüfen');busy=false;render();return}
-    const m=await D.getDoc(R(code,'members',me.uid));
+    let roomId=null,via='group',room=null,pubApproval=false;
+    try{const r=await D.getDoc(R(code));if(r.exists()){roomId=code;room=r.data()}}catch(e){}
+    if(!roomId){try{const p=await D.getDoc(D.doc(fs,'pubcodes',code));if(p.exists()){roomId=p.data().room;via='public';pubApproval=p.data().approval===true}}catch(e){}}
+    if(!roomId){ls.set('wa_rooms',(ls.get('wa_rooms')||[]).filter(c=>c!==code));toast('Raum nicht gefunden – Code prüfen. Gehörst du nicht zur Gruppe, brauchst du den öffentlichen Code.');busy=false;render();return}
+    const m=await D.getDoc(R(roomId,'members',me.uid));
     if(!m.exists()){
-      const s=r.data();
-      if(!s.entryOpen||['ended','published'].includes(s.status)){toast('Der Einlass in diesen Raum ist geschlossen');busy=false;render();return}
-      await D.setDoc(R(code,'members',me.uid),{name:prof.name,at:Date.now(),ok:s.approval!==true});
+      if(room&&(!room.entryOpen||['ended','published'].includes(room.status))){toast('Der Einlass in diesen Raum ist geschlossen');busy=false;render();return}
+      if(via==='group'&&room?.group&&!myGroupIds().includes(room.group)){toast('Du gehörst nicht zur Gruppe dieses Raums – frag den Wahlleiter nach dem öffentlichen Code.');busy=false;render();return}
+      const doc={name:prof.name,user:userOf(prof),at:Date.now(),via,ok:via==='public'?!pubApproval:!aprG(room)};
+      if(via==='public'){doc.code=code;doc.elig=false} // Externe: zunächst nur Beobachter
+      try{await D.setDoc(R(roomId,'members',me.uid),doc)}
+      catch(e){toast(e.code==='permission-denied'?'Beitritt nicht möglich – der Einlass ist geschlossen oder der Code gilt nicht mehr.':err(e));busy=false;render();return}
     }
-    const rec=[code,...(ls.get('wa_rooms')||[]).filter(c=>c!==code)].slice(0,5);ls.set('wa_rooms',rec);
-    openVoterRoom(code);
+    const rec=[roomId,...(ls.get('wa_rooms')||[]).filter(c=>c!==roomId)].slice(0,5);ls.set('wa_rooms',rec);
+    vJoinCode=code;openVoterRoom(roomId);
   }catch(e){toast(err(e))}
   busy=false;render();
 }
@@ -524,7 +641,7 @@ function openVoterRoom(code){
   vUnsub.push(D.onSnapshot(R(code,'members',me.uid),s=>{vMember=s.exists()?s.data():null;if(vMember)vJoined=true;render()},()=>{}));
   vUnsub.push(D.onSnapshot(R(code,'votes',me.uid),s=>{vVote=s.exists()?s.data():null;render()},()=>{}));
 }
-function leaveVoterRoom(){off(vUnsub);vCode=null;vRoom=null;render()}
+function leaveVoterRoom(){off(vUnsub);vCode=null;vRoom=null;vJoinCode=null;render()}
 
 /* ---------- Aktionen ---------- */
 function withTimes(cur,patch){
@@ -538,11 +655,13 @@ async function saveRoom(patch){
   try{await D.updateDoc(R(aCode),{...withTimes(aRoom,patch),updated:Date.now()})}catch(e){toast('Speichern fehlgeschlagen: '+err(e))}
   busy=false;render();
 }
+async function freeCode(){let c,t=0;do{c=rnd(6);t++}while(t<6&&(await D.getDoc(R(c)).then(s=>s.exists()).catch(()=>true)||await D.getDoc(D.doc(fs,'pubcodes',c)).then(s=>s.exists()).catch(()=>false)));return c}
 async function createRoom(){
+  const g=grpOf($('nrG')?.value);if(!g){toast('Bitte eine Gruppe wählen');return}
   busy=true;render();
   try{
-    let code,tries=0;do{code=rnd(6);tries++}while((await D.getDoc(R(code))).exists()&&tries<5);
-    await D.setDoc(R(code),{title:'Neue Wahl',status:'setup',mode:'free',max:1,cands:[],allowChange:false,approval:false,entryOpen:true,owner:me.uid,ownerName:prof.name,created:Date.now(),times:{}});
+    const code=await freeCode();
+    await D.setDoc(R(code),{title:'Neue Wahl',status:'setup',mode:'free',max:1,cands:[],allowChange:false,kind:'option',candRule:'noself',candUids:[],approvalGroup:false,approvalPublic:false,pubCode:null,entryOpen:true,group:g._id,leaders:[...(g.leaders||[])],owner:me.uid,ownerName:prof.name,created:Date.now(),times:{}});
     busy=false;openAdminRoom(code);toast('Wahlraum eröffnet');
   }catch(e){busy=false;toast(err(e));render()}
 }
@@ -552,6 +671,7 @@ async function deleteRoom(){
   try{
     const refs=[...aVotes.map(v=>R(code,'votes',v._id)),...aMembers.map(m=>R(code,'members',m._id)),R(code,'results','final')];
     for(let i=0;i<refs.length;i+=100){const b=D.writeBatch(fs);refs.slice(i,i+100).forEach(r=>b.delete(r));await b.commit()}
+    if(aRoom?.pubCode){try{await D.deleteDoc(D.doc(fs,'pubcodes',aRoom.pubCode))}catch(e){}}
     await D.deleteDoc(R(code));busy=false;closeAdminRoom();toast('Raum gelöscht');
   }catch(e){busy=false;toast(err(e));render()}
 }
@@ -572,34 +692,39 @@ async function withdraw(){
   busy=false;render();
 }
 async function createStaff(f){
-  const el=f.elements,name=el.sN.value.trim(),email=el.sE.value.trim().toLowerCase(),pw=el.sP.value;
-  const role=isSup?el.sR.value:'voter',manager=isSup?(el.sM.value||me.uid):me.uid,theme=el.sT.value||null;
+  const el=f.elements,name=el.sN.value.trim(),raw=el.sE.value.trim().toLowerCase(),pw=el.sP.value;
+  if(!raw.includes('@')&&!/^[a-z0-9][a-z0-9._-]{2,39}$/.test(raw)){toast('Benutzername: 3–40 Zeichen, nur a–z, 0–9, Punkt, Strich, Unterstrich');return}
+  const email=toLogin(raw),username=raw.includes('@')?raw:raw;
+  const role=el.sR.value==='admin'?'admin':'voter',grps=[...f.querySelectorAll('input[name=sG]:checked')].map(x=>x.value);
   if(!name||!email||pw.length<6){toast('Bitte alles ausfüllen (Passwort mind. 6 Zeichen)');return}
   busy=true;render();
   try{
     if(!secAuth)secAuth=A.getAuth(F.initializeApp(firebaseConfig,'verwaltung'));
-    const prof0={name,email,role,manager,theme,created:Date.now()};
+    const prof0={name,username,email,role,groups:grps,theme:null,created:Date.now()};
     let uid=null,revived=false;
     try{const c=await A.createUserWithEmailAndPassword(secAuth,email,pw);uid=c.user.uid;await A.signOut(secAuth)}
     catch(e){
       if(e.code!=='auth/email-already-in-use')throw e;
       // Login-Konto existiert schon (z. B. früher entfernt) → über die Kontenliste wiederfinden
       const acc=await D.getDoc(D.doc(fs,'accounts',email));
-      if(!acc.exists()){toast('Zu dieser E-Mail gibt es noch ein altes Login-Konto, das die App nicht kennt. Lösche es einmalig in Firebase → Authentication → Nutzer, dann klappt das Anlegen.');busy=false;render();return}
+      if(!acc.exists()){toast('Zu diesem Benutzernamen gibt es noch ein altes Login-Konto, das die App nicht kennt. Lösche es einmalig in Firebase → Authentication → Nutzer, dann klappt das Anlegen.');busy=false;render();return}
       uid=acc.data().uid;
       if((await D.getDoc(D.doc(fs,'users',uid))).exists()){toast('Diese Person ist schon im Verzeichnis');busy=false;render();return}
       revived=true;
     }
     await D.setDoc(D.doc(fs,'users',uid),prof0);
     await D.setDoc(D.doc(fs,'accounts',email),{uid,email});
+    if(!username.includes('@')){try{await D.setDoc(D.doc(fs,'logins',username),{uid,email})}catch(e){}}
     toast(revived?`${name} wieder aufgenommen – es gilt das bisherige Passwort dieses Kontos`:`${name} angelegt`);f.reset();
-  }catch(e){toast(e.code==='auth/invalid-email'?'Ungültige E-Mail':e.code==='auth/weak-password'?'Passwort zu schwach (mind. 6 Zeichen)':err(e))}
+  }catch(e){toast(e.code==='auth/invalid-email'?'Ungültiger Benutzername bzw. E-Mail':e.code==='auth/weak-password'?'Passwort zu schwach (mind. 6 Zeichen)':err(e))}
   busy=false;render();
 }
 const mapped=new Set();
 async function backfillAccounts(){ // merkt sich E-Mail→Konto, damit entfernte Personen später wieder aufgenommen werden können
   const todo=staff.filter(u=>u.email&&!mapped.has(u._id));todo.forEach(u=>mapped.add(u._id));
-  for(const u of todo){try{await D.setDoc(D.doc(fs,'accounts',String(u.email).toLowerCase()),{uid:u._id,email:String(u.email).toLowerCase()})}catch(e){}}
+  for(const u of todo){try{await D.setDoc(D.doc(fs,'accounts',String(u.email).toLowerCase()),{uid:u._id,email:String(u.email).toLowerCase()})}catch(e){}
+    if(isSup&&!u.username){try{await D.updateDoc(D.doc(fs,'users',u._id),{username:userOf(u)})}catch(e){}}
+    const un=userOf(u);if(un&&!un.includes('@')){try{const l=await D.getDoc(D.doc(fs,'logins',un));if(!l.exists())await D.setDoc(D.doc(fs,'logins',un),{uid:u._id,email:String(u.email).toLowerCase()})}catch(e){}}}
 }
 const readDraft=()=>{if(!tDraft)return;const v=id=>$(id)?.value;tDraft={...tDraft,name:v('tN')??tDraft.name,app:v('tA')??tDraft.app,pri:v('tP')??tDraft.pri,acc:v('tC')??tDraft.acc,bg:v('tB')??tDraft.bg}};
 async function saveTheme(){
@@ -622,11 +747,18 @@ document.addEventListener('click',async e=>{
   if(ds.join){joinRoom(ds.join);return}
   if(ds.open){openAdminRoom(ds.open);return}
   if(ds.mode){draft.mode=ds.mode;render();return}
+  if(ds.kind){if(draft.kind!==ds.kind){draft.kind=ds.kind;draft.cands=[]}render();return}
+  if(ds.crule){draft.candRule=ds.crule;render();return}
   if(ds.del){draft.cands.splice(+ds.del,1);render();return}
   if(ds.ok){try{await D.updateDoc(R(aCode,'members',ds.ok),{ok:true})}catch(x){toast(err(x))}return}
   if(ds.kick){if(await ask('Beitritt ablehnen?','Die Person wird aus dem Raum entfernt.','Ablehnen'))try{await D.deleteDoc(R(aCode,'members',ds.kick))}catch(x){toast(err(x))}return}
   if(ds.ap){const a=archive.find(x=>x._id===ds.ap);if(a)exportPdf(a);return}
   if(ds.ad){if(await ask('Protokoll löschen?','Das Protokoll wird endgültig aus dem Archiv entfernt.','Löschen'))try{await D.deleteDoc(D.doc(fs,'archive',ds.ad));toast('Gelöscht')}catch(x){toast(err(x))}return}
+  if(ds.cc){copy(fmtCode(ds.cc));return}
+  if(ds.cl){copy(`${baseUrl()}?r=${ds.cl}`);return}
+  if(ds.gdel){const g=grpOf(ds.gdel);if(g&&await ask(`Gruppe „${g.name}“ löschen?`,'Mitglieder verlieren die Zugehörigkeit. Bestehende Wahlräume dieser Gruppe bleiben, verlieren aber ihr Design.','Löschen')){busy=true;render();
+    try{const ms=staff.filter(u=>(u.groups||[]).includes(g._id));for(let i=0;i<ms.length;i+=100){const b=D.writeBatch(fs);ms.slice(i,i+100).forEach(u=>b.update(D.doc(fs,'users',u._id),{groups:(u.groups||[]).filter(x=>x!==g._id)}));await b.commit()}
+      await D.deleteDoc(D.doc(fs,'groups',g._id));toast('Gruppe gelöscht')}catch(x){toast(err(x))}busy=false;render()}return}
   if(ds.preset){const p=PRESETS.find(x=>x.key===ds.preset);tDraft={name:p.key==='standard'?'Mein Design':p.name,app:p.app,pri:p.pri,acc:p.acc,bg:p.bg};applyTheme(tDraft);render();return}
   if(ds.tedit){const t=themes.find(x=>x._id===ds.tedit);if(t){tDraft={...t};applyTheme(t);render()}return}
   if(ds.tdel){const t=themes.find(x=>x._id===ds.tdel);if(t&&await ask(`Design „${t.name}“ löschen?`,'Wer dieses Design hat, sieht danach wieder das Standard-Design.','Löschen'))try{await D.deleteDoc(D.doc(fs,'themes',t._id));toast('Gelöscht')}catch(x){toast(err(x))}return}
@@ -636,7 +768,7 @@ document.addEventListener('click',async e=>{
   const s=aRoom;
   switch(t.id){
     case 'logout':off(vUnsub);off(aUnsub);off(gUnsub);vCode=null;aCode=null;page='vote';tDraft=null;await A.signOut(auth);break;
-    case 'lForgot':{const m=$('lE')?.value.trim();if(!m){toast('Bitte zuerst deine E-Mail eintragen');break}try{await A.sendPasswordResetEmail(auth,m);toast('Falls das Konto existiert, kommt gleich eine Mail')}catch(x){toast(err(x))}break}
+    case 'lForgot':{const raw=$('lE')?.value.trim();if(!raw){toast('Bitte zuerst Benutzername oder E-Mail eintragen');break}const m=(await loginCandidates(raw)).find(realMail);if(!m){toast('Für diesen Benutzer ist keine E-Mail hinterlegt – bitte deinen Wahlleiter, dein Konto neu anzulegen.');break}try{await A.sendPasswordResetEmail(auth,m);toast('Falls das Konto existiert, kommt gleich eine Mail')}catch(x){toast(err(x))}break}
     case 'vLeave':leaveVoterRoom();break;
     case 'clr':pick=[];render();break;
     case 'cast':castVote();break;
@@ -645,12 +777,13 @@ document.addEventListener('click',async e=>{
     case 'vDel':withdraw();break;
     case 'newRoom':createRoom();break;
     case 'aBack':closeAdminRoom();break;
-    case 'aLink':copy(`${baseUrl()}?r=${aCode}`);break;
-    case 'aCopy':copy(fmtCode(aCode));break;
-    case 'aAdd':draft.cands.push({id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:'',info:''});render();setTimeout(()=>{const l=document.querySelectorAll('[data-n]');l[l.length-1]?.focus()});break;
-    case 'aSave':{const c=draft.cands.map(x=>({id:x.id,name:x.name.trim(),info:(x.info||'').trim()})).filter(x=>x.name);
-      if(!c.length){toast('Mindestens eine Option eintragen');return}
-      const patch={title:(draft.title||'').trim()||'Wahl',mode:draft.mode==='ranked'?'ranked':'free',max:Math.min(Math.max(1,parseInt(draft.max)||1),c.length),cands:c,allowChange:!!draft.allowChange,approval:!!draft.approval};
+    case 'pubOn':{busy=true;render();try{const c=await freeCode();await D.setDoc(D.doc(fs,'pubcodes',c),{room:aCode,approval:s.approvalPublic===true});await D.updateDoc(R(aCode),{pubCode:c});toast('Öffentlicher Code erstellt')}catch(x){toast(err(x))}busy=false;render();break}
+    case 'pubOff':if(await ask('Öffentlichen Code abschalten?','Mit diesem Code kann danach niemand mehr beitreten. Wer schon im Raum ist, bleibt drin.','Abschalten')){busy=true;render();
+      try{const c=s.pubCode;await D.updateDoc(R(aCode),{pubCode:null});try{await D.deleteDoc(D.doc(fs,'pubcodes',c))}catch(e){}toast('Öffentlicher Code abgeschaltet')}catch(x){toast(err(x))}busy=false;render()}break;
+    case 'aAdd':draft.cands.push({id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:'',info:'',...(draft.kind==='person'?{offline:true}:{})});render();setTimeout(()=>{const l=document.querySelectorAll('[data-n]');l[l.length-1]?.focus()});break;
+    case 'aSave':{const c=draft.cands.map(x=>({id:x.id,name:String(x.name||'').trim(),info:(x.info||'').trim(),...(x.uid?{uid:x.uid}:{}),...(x.offline?{offline:true}:{})})).filter(x=>x.name);
+      if(!c.length){toast(draft.kind==='person'?'Mindestens eine Person zur Wahl stellen':'Mindestens eine Option eintragen');return}
+      const patch={title:(draft.title||'').trim()||'Wahl',mode:draft.mode==='ranked'?'ranked':'free',max:Math.min(Math.max(1,parseInt(draft.max)||1),c.length),cands:c,allowChange:!!draft.allowChange,kind:draft.kind==='person'?'person':'option',candRule:draft.candRule==='none'?'none':'noself',candUids:c.filter(x=>x.uid).map(x=>x.uid)};
       draft=null;await saveRoom(patch);toast('Gespeichert');break}
     case 'aStart':if(await ask(s.status==='paused'?'Wahl fortsetzen?':'Wahl starten?','Ab jetzt können alle im Raum abstimmen.','Starten'))saveRoom({status:'running'});break;
     case 'aPause':saveRoom({status:'paused'});break;
@@ -658,15 +791,13 @@ document.addEventListener('click',async e=>{
     case 'aPub':if(await ask('Ergebnis veröffentlichen?','Das Ergebnis wird für dich und alle im Raum sichtbar.','Veröffentlichen')){
       await saveRoom({status:'published',results:tally()})}break;
     case 'aPrint':if(aRes)exportPdf(protoData());break;
-    case 'aArch':if(aRes){busy=true;render();try{await D.setDoc(D.doc(fs,'archive',`${aCode}_${aRes.publishedAt}`),{...protoData(),archivedAt:Date.now()});toast('Im Archiv gespeichert')}catch(x){toast(err(x))}busy=false;render()}break;
+    case 'aArch':if(aRes&&!isSup&&aRoom?.owner!==me.uid){toast('Übernimm zuerst die Verantwortung für den Raum – das Protokoll gehört dem verantwortlichen Wahlleiter.');break}
+      if(aRes){busy=true;render();try{await D.setDoc(D.doc(fs,'archive',`${aCode}_${aRes.publishedAt}`),{...protoData(),archivedAt:Date.now()});toast('Im Archiv gespeichert')}catch(x){toast(err(x))}busy=false;render()}break;
     case 'aDelRoom':deleteRoom();break;
     case 'oMe':case 'oSet':{const to=t.id==='oMe'?me.uid:$('oSel').value;if(!to||to===s.owner)break;const nm=to===me.uid?prof.name:nameOf(to);
-      if(await ask('Raum übergeben?',`${nm} wird Wahlleiter dieses Raums und steht so im Protokoll. ${to===me.uid?'':'Du behältst als Hauptwahlleiter weiterhin Zugriff.'}`,'Übergeben'))saveRoom({owner:to,ownerName:nm});break}
+      if(await ask(to===me.uid?'Verantwortung übernehmen?':'Verantwortung übergeben?',`${nm} ist dann verantwortlicher Wahlleiter dieses Raums und steht so im Protokoll. Alle Wahlleiter der Gruppe können den Raum weiter steuern.`,to===me.uid?'Übernehmen':'Übergeben'))saveRoom({owner:to,ownerName:nm});break}
     case 'tCancel':tDraft=null;applyTheme(curTheme);render();break;
     case 'tSave':saveTheme();break;
-    case 'bulkGo':{const tid=$('bulkT').value||null,list=staff.filter(u=>u._id!==me.uid&&(isSup||u.manager===me.uid)&&u.role!=='admin');
-      if(!list.length||!await ask('Design zuweisen?',`${list.length} Wähler bekommen das Design „${themeName(tid)}“.`,'Zuweisen'))break;
-      busy=true;render();try{for(let i=0;i<list.length;i+=100){const b=D.writeBatch(fs);list.slice(i,i+100).forEach(u=>b.update(D.doc(fs,'users',u._id),{theme:tid}));await b.commit()}toast('Design zugewiesen')}catch(x){toast(err(x))}busy=false;render();break}
   }
 });
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.dataset?.c){e.preventDefault();e.target.click()}});
@@ -678,14 +809,47 @@ document.addEventListener('input',e=>{const t=e.target;
   else if(t.id==='fMax')draft.max=t.value;else if(t.id==='fTitle')draft.title=t.value});
 document.addEventListener('change',async e=>{const t=e.target;
   if(t.id==='myT'){try{await D.updateDoc(D.doc(fs,'users',me.uid),{theme:t.value||null});toast('Dein Design wurde geändert')}catch(x){toast(err(x))}return}
-  if(t.dataset.theme){try{await D.updateDoc(D.doc(fs,'users',t.dataset.theme),{theme:t.value||null});toast('Design zugewiesen')}catch(x){toast(err(x))}return}
-  if(t.dataset.mgr){try{await D.updateDoc(D.doc(fs,'users',t.dataset.mgr),{manager:t.value})}catch(x){toast(err(x))}return}
+  if(t.dataset.ugrp){const u=staff.find(x=>x._id===t.dataset.ugrp);if(!u)return;const set=new Set(u.groups||[]);t.checked?set.add(t.value):set.delete(t.value);
+    try{await D.updateDoc(D.doc(fs,'users',u._id),{groups:[...set]});toast('Gruppen geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
+  if(t.dataset.glead){const g=grpOf(t.dataset.glead);if(!g)return;const set=new Set(g.leaders||[]);t.checked?set.add(t.value):set.delete(t.value);const L=[...set];
+    try{await D.updateDoc(D.doc(fs,'groups',g._id),{leaders:L});const rs=myRooms.filter(r=>r.group===g._id);for(let i=0;i<rs.length;i+=100){const b=D.writeBatch(fs);rs.slice(i,i+100).forEach(r=>b.update(R(r._id),{leaders:L}));await b.commit()}toast('Wahlleiter geändert')}catch(x){t.checked=!t.checked;toast(err(x))}return}
+  if(t.dataset.gtheme){try{await D.updateDoc(D.doc(fs,'groups',t.dataset.gtheme),{theme:t.value||null});toast('Design der Gruppe geändert')}catch(x){toast(err(x))}return}
+  if(t.dataset.gname){const g=grpOf(t.dataset.gname),nm=t.value.trim().slice(0,40);if(!g||!nm||nm===g.name){if(g)t.value=g.name;return}try{await D.updateDoc(D.doc(fs,'groups',g._id),{name:nm});toast('Name geändert')}catch(x){t.value=g.name;toast(err(x))}return}
+  if(t.dataset.candu&&draft){const u=staff.find(x=>x._id===t.dataset.candu);if(!u||!(u.groups||[]).includes(aRoom?.group))return;
+    if(t.checked){if(!draft.cands.some(c=>c.uid===u._id))draft.cands.push({id:'u_'+u._id,uid:u._id,name:u.name||'?',info:''})}else draft.cands=draft.cands.filter(c=>c.uid!==u._id);render();return}
+  if(t.dataset.elig){try{await D.updateDoc(R(aCode,'members',t.dataset.elig),{elig:t.checked})}catch(x){t.checked=!t.checked;toast(err(x))}return}
+  if(t.id==='aprG'){saveRoom({approvalGroup:t.checked});return}
+  if(t.id==='aprP'){const c=aRoom?.pubCode;await saveRoom({approvalPublic:t.checked});if(c){try{await D.updateDoc(D.doc(fs,'pubcodes',c),{approval:t.checked})}catch(x){}}return}
+  if(t.dataset.uname){const nm=t.value.trim().slice(0,60),u=staff.find(x=>x._id===t.dataset.uname);if(!nm||!u||nm===u.name){if(u)t.value=u.name;return}
+    try{await D.updateDoc(D.doc(fs,'users',u._id),{name:nm});toast('Name geändert')}catch(x){t.value=u.name;toast(err(x))}return}
   if(t.id==='eOpen'){saveRoom({entryOpen:t.checked});return}
-  if(!draft)return;if(t.id==='fChange')draft.allowChange=t.checked;if(t.id==='fApprove')draft.approval=t.checked});
+  if(!draft)return;if(t.id==='fChange')draft.allowChange=t.checked});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;
-  if(f.id==='lf'){const em=f.elements.lE.value.trim(),pw=f.elements.lP.value;busy=true;render();try{await A.signInWithEmailAndPassword(auth,em,pw)}catch(x){toast('Anmeldung fehlgeschlagen – E-Mail oder Passwort falsch')}busy=false;render()}
+  if(f.id==='lf'){const raw=f.elements.lE.value,pw=f.elements.lP.value;busy=true;render();
+    let ok=false,last=null;for(const em of await loginCandidates(raw)){try{await A.signInWithEmailAndPassword(auth,em,pw);ok=true;break}catch(x){last=x;if(x.code==='auth/too-many-requests')break}}
+    if(!ok)toast(last?.code==='auth/too-many-requests'?'Zu viele Versuche – bitte kurz warten':'Anmeldung fehlgeschlagen – Benutzername oder Passwort falsch');busy=false;render()}
   if(f.id==='jf')joinRoom(f.elements.jC.value);
   if(f.id==='sf')createStaff(f);
+  if(f.id==='gf'){const nm=f.elements.gN.value.trim().slice(0,40),th=f.elements.gT.value||null,L=[...f.querySelectorAll('input[name=gL]:checked')].map(x=>x.value);
+    if(!nm){toast('Bitte einen Namen eintragen');return}busy=true;render();
+    try{await D.setDoc(D.doc(fs,'groups','g'+rnd(9)),{name:nm,theme:th,leaders:L,created:Date.now()});toast('Gruppe angelegt');f.reset()}catch(x){toast(err(x))}busy=false;render()}
+  if(f.id==='emf'){const nm=f.elements.emNew.value.trim().toLowerCase(),pw=f.elements.emPw.value;
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(nm)||nm.endsWith('@'+LOGIN_DOMAIN)){toast('Bitte eine gültige E-Mail-Adresse eingeben');return}
+    if(nm===String(me.email).toLowerCase()){toast('Diese Adresse ist schon hinterlegt');return}
+    busy=true;render();
+    try{const u=auth.currentUser;await A.reauthenticateWithCredential(u,A.EmailAuthProvider.credential(u.email,pw));
+      const un=userOf(prof);if(un&&!un.includes('@')){try{await D.setDoc(D.doc(fs,'logins',un),{uid:me.uid,email:String(me.email).toLowerCase(),pending:nm})}catch(e){}}
+      await A.verifyBeforeUpdateEmail(u,nm);toast(`Bestätigungslink an ${nm} gesendet – bitte Postfach prüfen`);f.reset()}
+    catch(x){toast(['auth/wrong-password','auth/invalid-credential','auth/invalid-login-credentials'].includes(x.code)?'Aktuelles Passwort ist falsch':x.code==='auth/email-already-in-use'?'Diese E-Mail wird schon von einem anderen Konto benutzt':x.code==='auth/invalid-email'?'Ungültige E-Mail-Adresse':x.code==='auth/too-many-requests'?'Zu viele Versuche – bitte später erneut':err(x))}
+    busy=false;render()}
+  if(f.id==='cpf'){const el=f.elements,old=el.cpOld.value,n1=el.cpNew.value,n2=el.cpNew2.value;
+    if(n1.length<6){toast('Das neue Passwort braucht mindestens 6 Zeichen');return}
+    if(n1!==n2){toast('Die neuen Passwörter stimmen nicht überein');return}
+    if(n1===old){toast('Das neue Passwort ist dasselbe wie das alte');return}
+    busy=true;render();
+    try{const u=auth.currentUser;await A.reauthenticateWithCredential(u,A.EmailAuthProvider.credential(u.email,old));await A.updatePassword(u,n1);toast('Passwort geändert');page='vote'}
+    catch(x){toast(['auth/wrong-password','auth/invalid-credential','auth/invalid-login-credentials'].includes(x.code)?'Aktuelles Passwort ist falsch':x.code==='auth/weak-password'?'Neues Passwort ist zu schwach':x.code==='auth/too-many-requests'?'Zu viele Versuche – bitte später erneut':err(x))}
+    busy=false;render()}
   if(f.id==='pf'){const nm=f.elements.pName.value.trim().slice(0,60);if(!nm)return;busy=true;render();
     try{await D.updateDoc(D.doc(fs,'users',me.uid),{name:nm});
       const own=myRooms.filter(r=>r.owner===me.uid);for(let i=0;i<own.length;i+=100){const b=D.writeBatch(fs);own.slice(i,i+100).forEach(r=>b.update(R(r._id),{ownerName:nm}));await b.commit()}
@@ -704,12 +868,12 @@ document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target
     if(u?.isAnonymous){await A.signOut(auth);return}
     if(!me){if(themeUnsub){themeUnsub();themeUnsub=null}themeId=null;authReady=true;render();return}
     isSup=me.uid===SUPER_UID;
-    if(isSup){try{const p=await D.getDoc(D.doc(fs,'users',me.uid));if(!p.exists())await D.setDoc(D.doc(fs,'users',me.uid),{name:'Hauptwahlleiter',email:me.email||'',role:'admin',manager:me.uid,theme:null,created:Date.now()})}catch(e){}}
+    if(isSup){try{const p=await D.getDoc(D.doc(fs,'users',me.uid));if(!p.exists())await D.setDoc(D.doc(fs,'users',me.uid),{name:'Hauptwahlleiter',email:me.email||'',role:'admin',groups:[],theme:null,created:Date.now()})}catch(e){}}
     let first=true,wasAdm=null;
     profUnsub=D.onSnapshot(D.doc(fs,'users',me.uid),s=>{
       prof=s.exists()?s.data():null;isAdm=!!prof&&(isSup||prof.role==='admin');
       if(isAdm!==wasAdm){wasAdm=isAdm;off(gUnsub);if(prof)startGlobal();if(!isAdm&&page!=='vote'){off(aUnsub);aCode=null;page='vote'}}
-      watchTheme(prof?.theme||null);
+      if(first&&prof)syncEmail();
       if(first&&prof){first=false;if(pendingRoom&&!vCode){history.replaceState(null,'',baseUrl());joinRoom(pendingRoom)}}
       authReady=true;render();
     },()=>{prof=null;authReady=true;render()});
